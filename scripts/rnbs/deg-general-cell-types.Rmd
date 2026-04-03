@@ -1,0 +1,1140 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+shhh <- suppressPackageStartupMessages
+shhh(library(Matrix))
+shhh(library(SingleR))
+shhh(library(celldex))
+shhh(library(hdf5r))
+shhh(library(dplyr))
+shhh(library(Seurat))
+shhh(library(stringr))
+shhh(library(tidyr))
+shhh(library(ggplot2))
+shhh(library(patchwork))
+shhh(library(Seurat))
+shhh(library(SingleR))
+shhh(library(ggrepel))
+shhh(library(qs))
+shhh(library(tidytext))
+shhh(library(pheatmap))
+shhh(library(ComplexHeatmap))
+shhh(library(ggpubr))
+shhh(library(rstatix))
+shhh(library(SingleR))
+shhh(library(edgeR))
+shhh(library(slingshot))
+shhh(library(RColorBrewer))
+shhh(library(tradeSeq))
+shhh(library(SingleCellExperiment))
+```
+```{r}
+save.figs <- function(p1,out.dir,base.fn,width,height){
+    fn=paste0(base.fn,'.png')
+    ggsave(file.path(out.dir,fn),
+           plot = p1,
+           width = width,
+           height = height,
+           units = 'in')
+    fn=paste0(base.fn,'.pdf')
+    ggsave(file.path(out.dir,fn),
+           plot = p1,
+           width = width,
+           height = height,
+           units = 'in')
+}
+volcano.plot <- function(de,p_thresh,log_thresh,title){
+    max_abs_x <- max(abs(de$log2FC))
+    suppressWarnings({
+        p1 <- ggplot(data=de, aes(x=log2FC, y=-log10(p.adj+1e-300), col=diffexpressed, label=delabel)) +
+                    geom_point() + 
+                    theme_minimal() +
+                    geom_text_repel() +
+                    scale_color_manual(values=c("blue", "black", "red")) +
+                    geom_vline(xintercept=c(-log_thresh, log_thresh), col="red") +
+                    geom_hline(yintercept=-log10(p_thresh), col="red") +
+                    ggtitle(title) +  xlim(-1.05 * max_abs_x, 1.05 * max_abs_x)
+    })
+
+    return(p1)
+    }
+
+heatmap.plot <- function(de,sub,title, ds.pt = 100,
+                         ndeg_top_bottom=15, 
+                          p.thresh=0.05,
+                          plot.tag = c('response_status','any_tobacco_smoker')
+                          ){
+
+     DefaultAssay(sub) <- "Spatial"
+     Idents(object=sub) <- 'cgf.sample.id'
+     suppressWarnings({sub <- subset(sub, downsample = ds.pt)})
+     DefaultAssay(sub) <- "Spatial"
+     exclude.tma <- df[grepl(pattern = 'TMA',x = df$Original.ID),'CGF.Sample.ID']
+     annotation_col <- sub@meta.data %>% filter(!(cgf.sample.id %in% exclude.tma)) %>%
+       filter(row.names(.) %in% colnames(sub) ) %>%
+       select(all_of(plot.tag)) #cgf.sample.id, 
+     ndeg = ndeg_top_bottom
+     de %>% filter(p_val_adj <  p.thresh) %>% filter(avg_log2FC >0 ) %>%
+                 top_n(n = ndeg, wt =  avg_log2FC) -> top
+     de %>% filter(p_val_adj <  p.thresh) %>% filter(avg_log2FC <0) %>%
+                 top_n(n = ndeg, wt = -avg_log2FC) -> bottom
+     temp <- rbind(top,bottom)
+     use.genes <- unique(temp$Gene)  
+     lognorm.dat <- as.matrix(sub@assaysdata[use.genes,
+                                                      row.names(annotation_col),
+                                                      drop = FALSE])
+     if (length(use.genes) <= 1){
+         return(NA)
+     }
+     ann_colors <- smoker.ann.colors(plot.tag)
+     # 5. Plot with pheatmap (row scaling built-in)
+     p1 <- pheatmap.wrapper(lognorm.dat, 
+                             annotation_col,
+                             ann_colors,
+                             title)
+     return(p1)
+ }
+ smoker.ann.colors <- function(plot.tag){
+     smoker_colors <- c("yes" = "red", "no" = "gray80")
+     response_colors <- c("R" = "green3", "NR" = "black")
+     # 4. Define annotation colors
+     if (length(plot.tag) == 2){
+         ann_colors <- list(
+           response_status = response_colors,
+           any_tobacco_smoker = smoker_colors
+         )
+     }else if (plot.tag[1] == 'response_status'){
+         ann_colors <- list( response_status = response_colors)
+     }else if (plot.tag[1] == 'any_tobacco_smoker'){
+         ann_colors <- list(any_tobacco_smoker = smoker_colors)
+     }
+     return(ann_colors)
+ }
+ pheatmap.wrapper <- function(lognorm.dat, annotation_col, 
+                              ann_colors, title, cluster_rows=TRUE,
+                              cluster_cols=TRUE,
+                              scale="row"){    
+  
+    p1<- pheatmap(
+       lognorm.dat,
+       main = title,
+       scale = scale,                 # row-wise z-score normalization
+       annotation_col = annotation_col,
+       annotation_colors = ann_colors,
+       clustering_method = "complete",
+       cluster_rows = cluster_rows,
+       cluster_cols = cluster_cols,
+       color = colorRampPalette(c("navy", "white", "firebrick3"))(100),
+       show_colnames = FALSE,
+       show_rownames = TRUE
+     ) 
+     return(p1)
+ }
+     
+```
+```{r}
+#from brian's deg loop nb
+#DO THIS AND SLINGSHOT EACH DAY
+prj = "HCC-CBS-253-Hillman-LKarapetyan-scRNAseq-revise"
+base = file.path('/ix/rbao/Projects', prj)
+data = file.path(base,'results','jwork')
+scripts= file.path(base,'scripts')
+results = file.path(base,'results','jwork')
+cell.types <- unique(dat_t@meta.data$general_cell_type)
+
+#exclude <- c('Terminally_exh_Tex_progenitor_1','Tex_Intermediate_Effector',
+#             'Gamma_delta_T_cells','Tissue_resident')
+#cell.types <-  cell.types[!(cell.types %in% exclude)] #too few 'plasmacytoid dendritic cell',
+#print(cell.types)
+#ADD THESE COLUMNS TO THE DAT OBJ
+##TIL LOOP
+use.tags <- c( 'PFS.6month.status','treatment', 'timepoint') # 'treatment', 'timepoint',
+test <- 'wilcox'
+log.name <- "avg_log2FC"
+p.name <- 'p_val_adj'
+p = 0.001
+log_threshes = c(1, 1.5)
+save.filtered <- TRUE
+width = 8
+height = 6
+v=2
+suppressWarnings({
+    out.gene.lists <- file.path(results,sprintf('DEG_contrasts_TIL_%s_v%d',test,v),'csv')
+    dir.create(out.gene.lists,recursive = TRUE)
+    filt.out.gene.lists <- file.path(results,sprintf('DEG_contrasts_%s_v%d',test,v),'filtered_csv')
+    dir.create(filt.out.gene.lists,recursive = TRUE)
+    out.de.volcano <- file.path(results,sprintf('DEG_contrasts_%s_v%d',test,v),'volcano')
+    dir.create(out.de.volcano,recursive=TRUE)
+    out.de.heatmap <- file.path(results,sprintf('DEG_contrasts_%s_v%d',test,v),'heatmap')
+    dir.create(out.de.heatmap,recursive=TRUE)
+})
+plot.volc <- TRUE
+plot.heat <- TRUE
+min.pct <- 0.03
+min.cells.feat = 20
+tissue.types <- c('TIL')
+treatments <- c('all.tx')
+timepoints <- c('Baseline','Week4') #,'Week16')
+system.time({
+    for (log_thresh in log_threshes){  
+        for (time in timepoints){
+            time.sub <- subset(dat_t, subset = timepoint == time)
+            for (tag in use.tags){
+                if (tag == 'pathological_response_wk4'){
+                    idents <- c('R','NR')
+                }else if (tag == 'PFS.6month'){
+                    idents <- c('NoPrg6M','Prg6M')
+                }else if (tag == 'timepoint'){
+                    idents <- c('Week4','Baseline')
+                }else if (tag == 'treatment'){
+                    idents <- c('combo','rela')
+                }else{
+                    idents <- c('yes','no')
+                }
+                comp.sub <- subset(dat_t, subset = !!sym(tag) %in% idents)
+                for (tissue in tissue.types){
+                    tissue.sub <- subset(comp.sub, subset = sample_type == tissue)
+                    for (treatment in treatments){
+                        for (cell in cell.types){
+                            if (tag == 'pathological_response_wk4'){
+                                 title = sprintf('Respnder vs Non-Responder, %s DEGs',cell)
+                            }else if (tag == 'timepoint'){
+                                title = sprintf('Week4 vs Baseline, %s DEGs',cell)
+                            }else if (tag == 'PFS.6month'){
+                                title = sprintf('NoPrg6m vs Prg6M, %s DEGs',cell)
+                            } else{
+                                 title = sprintf('yes vs no, %s DEGs',cell)
+                            }
+                            title = paste(tissue, title)
+                            if (cell != 'all.cells'){
+                                suppressWarnings({sub <- subset(tissue.sub, subset = general_cell_type == cell)})
+                            } else {
+                                sub <- tissue.sub
+                            }
+                            DefaultAssay(sub) <- "RNA"
+                            Idents(sub) <- tag  
+                            contrast.str <- paste0(time,'.',treatment,'.',tissue,'.',
+                                                   tag,'.',idents[1],'.vs.',idents[2])
+                            base.fn <- sprintf('%s.%s.DEG.p%1.3f.log.%1.1f.%s.%d.minpct.v%d',
+                                               contrast.str, cell, p,log_thresh, test, min.pct*100,v)
+                            base.fn <- stringr::str_replace_all(base.fn,' ','.')
+                            fn=paste0(base.fn,'.csv')            
+                            if (file.exists(file.path(out.gene.lists,fn))){
+                                print(paste('Loading',fn))
+                                de <- read.csv(file.path(out.gene.lists,fn),row.names=1)
+                            }else{
+                                print(paste('Generating',fn))            
+                                markers <- FindMarkers(object=sub,
+                                                     ident.1 = idents[1],   
+                                                     ident.2 = idents[2],      
+                                                     base=2,
+                                                    min.pct = min.pct,
+                                                    min.cells.feature = min.cells.feat, #200 for 10% and 10 for 1%
+                                                    min.cells.group = 50,
+                                                    test.use = 'wilcox')# 'negbinom', #'wilcox_limma',#'MAST', #
+                                                   # latent.vars = c('Patient.Number')) #For models that accept: 'LR', 'negbinom', 'poisson', or 'MAST')
+                                de <- markers
+                                de$log2FC <- de[[log.name]]   
+                                max_fc <- 100
+                                de <- de %>%
+                                              mutate(
+                                                log2FC = case_when(
+                                                log2FC == Inf ~ max_fc,
+                                                log2FC > max_fc ~ max_fc,
+                                                log2FC < -max_fc ~ -max_fc,
+                                                log2FC == -Inf ~ -max_fc,
+                                                  TRUE ~ log2FC
+                                                )
+                                              ) %>%
+                                              filter(!is.na(p_val_adj))
+                                de$p.adj <- de[[p.name]]
+                                de$Gene = rownames(de)
+                                de$diffexpressed <- "NO"    
+                                de$diffexpressed[de$log2FC > log_thresh & de$p.adj < p] <- "UP"
+                                de$diffexpressed[de$log2FC < -log_thresh & de$p.adj < p] <- "DOWN"
+                                de$diffexpressed <- as.character(de$diffexpressed)
+                                de$delabel = NA
+                                de$delabel[de$diffexpressed != "NO"] <- de$Gene[de$diffexpressed != "NO"]                  
+                                de <- de %>% arrange(-log2FC,p_val_adj)               
+                                de$contrast <- contrast.str 
+                                fn=paste0(base.fn,'.csv')
+                                write.csv(de,file.path(out.gene.lists,fn))
+            
+                            }
+                            if (save.filtered){
+                                filt.de <- de %>% filter(diffexpressed %in% c('UP','DOWN'))
+                                fn = paste0('filt.',base.fn,'.csv')
+                                write.csv(filt.de, file.path(filt.out.gene.lists,fn))
+                            }
+                            if (plot.volc){
+                                p1 <- volcano.plot(de, p, log_thresh, title)
+                                save.figs(p1, out.de.volcano, base.fn, width=width, height=height)
+                            }
+                            if (plot.heat){
+                                if (cell == 'CD8plus.T.cell'){
+                                    ds.pt = 10
+                                    ndeg = 10
+                                } else {
+                                    ds.pt = 200
+                                    ndeg = 15
+                                }
+                                plot.tag <- tag
+                                # make_heatmap_bi(de,sub)
+                     #            make_heatmap_bi <- function(de, counts, use_info, output.path, orig.contrast.col=c(), rankby='log2FC',
+                     # p = 0.05,  log_thresh = 1, heatmap_top_plus_minus_n = 25,
+                     # use.p = 'adj.P.Val', require.p.sig.heatmap = TRUE, version = 1, 
+                     # heat.colormap = 'warm', save.figs =TRUE, save.name.tag='',cluster_rows = TRUE, 
+                     # cluster_cols = TRUE, save_vector_formats = c('.pdf'),
+                     #         added.cols = c(), show_in_line= TRUE){
+                                p2 <- heatmap.plot(de, sub, title, plot.tag = plot.tag,
+                                                   ndeg_top_bottom = ndeg,  p.thresh=p,
+                                                   ds.pt =ds.pt)
+                                if (any(!is.na(p2))){
+                                    save.figs(p2, out.de.heatmap, base.fn,
+                                          width=10, height=5)
+                                }else{
+                                    print('Too few genes for heatmap')
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+})
+```
+```{r}
+#from brian's deg loop nb
+#DO THIS AND SLINGSHOT EACH DAY
+## PBMC LOOP
+
+prj = "HCC-CBS-253-Hillman-LKarapetyan-scRNAseq-revise"
+base = file.path('/ix/rbao/Projects', prj)
+data = file.path(base,'results','jwork')
+scripts= file.path(base,'scripts')
+results = file.path(base,'results','jwork')
+cell.types <- unique(dat_p@meta.data$general_cell_type)
+
+#exclude <- c('Terminally_exh_Tex_progenitor_1','Tex_Intermediate_Effector',
+#             'Gamma_delta_T_cells','Tissue_resident')
+#cell.types <-  cell.types[!(cell.types %in% exclude)] #too few 'plasmacytoid dendritic cell',
+#print(cell.types)
+#ADD THESE COLUMNS TO THE DAT OBJ
+use.tags <- c( 'PFS.6month.status','treatment', 'timepoint') # 'treatment', 'timepoint',
+test <- 'wilcox'
+log.name <- "avg_log2FC"
+p.name <- 'p_val_adj'
+p = 0.001
+log_threshes = c(1, 1.5)
+save.filtered <- TRUE
+width = 8
+height = 6
+v=2
+suppressWarnings({
+    out.gene.lists <- file.path(results,sprintf('DEG_contrasts_PBMC_%s_v%d',test,v),'csv')
+    dir.create(out.gene.lists,recursive = TRUE)
+    filt.out.gene.lists <- file.path(results,sprintf('DEG_contrasts_%s_v%d',test,v),'filtered_csv')
+    dir.create(filt.out.gene.lists,recursive = TRUE)
+    out.de.volcano <- file.path(results,sprintf('DEG_contrasts_%s_v%d',test,v),'volcano')
+    dir.create(out.de.volcano,recursive=TRUE)
+    out.de.heatmap <- file.path(results,sprintf('DEG_contrasts_%s_v%d',test,v),'heatmap')
+    dir.create(out.de.heatmap,recursive=TRUE)
+})
+plot.volc <- TRUE
+plot.heat <- TRUE
+min.pct <- 0.03
+min.cells.feat = 20
+tissue.types <- c('PBMC')
+treatments <- c('all.tx')
+timepoints <- c('Baseline','Week4') #,'Week16')
+system.time({
+    for (log_thresh in log_threshes){  
+        for (time in timepoints){
+            time.sub <- subset(dat_p, subset = timepoint == time)
+            for (tag in use.tags){
+                if (tag == 'pathological_response_wk4'){
+                    idents <- c('R','NR')
+                }else if (tag == 'PFS.6month'){
+                    idents <- c('NoPrg6M','Prg6M')
+                }else if (tag == 'timepoint'){
+                    idents <- c('Week4','Baseline')
+                }else if (tag == 'treatment'){
+                    idents <- c('combo','rela')
+                }else{
+                    idents <- c('yes','no')
+                }
+                comp.sub <- subset(dat_p, subset = !!sym(tag) %in% idents)
+                for (tissue in tissue.types){
+                    tissue.sub <- subset(comp.sub, subset = sample_type == tissue)
+                    for (treatment in treatments){
+                        for (cell in cell.types){
+                            if (tag == 'pathological_response_wk4'){
+                                 title = sprintf('Respnder vs Non-Responder, %s DEGs',cell)
+                            }else if (tag == 'timepoint'){
+                                title = sprintf('Week4 vs Baseline, %s DEGs',cell)
+                            }else if (tag == 'PFS.6month'){
+                                title = sprintf('NoPrg6m vs Prg6M, %s DEGs',cell)
+                            } else{
+                                 title = sprintf('yes vs no, %s DEGs',cell)
+                            }
+                            title = paste(tissue, title)
+                            if (cell != 'all.cells'){
+                                suppressWarnings({sub <- subset(tissue.sub, subset = general_cell_type == cell)})
+                            } else {
+                                sub <- tissue.sub
+                            }
+                            DefaultAssay(sub) <- "RNA"
+                            Idents(sub) <- tag  
+                            contrast.str <- paste0(time,'.',treatment,'.',tissue,'.',
+                                                   tag,'.',idents[1],'.vs.',idents[2])
+                            base.fn <- sprintf('%s.%s.DEG.p%1.3f.log.%1.1f.%s.%d.minpct.v%d',
+                                               contrast.str, cell, p,log_thresh, test, min.pct*100,v)
+                            base.fn <- stringr::str_replace_all(base.fn,' ','.')
+                            fn=paste0(base.fn,'.csv')            
+                            if (file.exists(file.path(out.gene.lists,fn))){
+                                print(paste('Loading',fn))
+                                de <- read.csv(file.path(out.gene.lists,fn),row.names=1)
+                            }else{
+                                print(paste('Generating',fn))            
+                                markers <- FindMarkers(object=sub,
+                                                     ident.1 = idents[1],   
+                                                     ident.2 = idents[2],      
+                                                     base=2,
+                                                    min.pct = min.pct,
+                                                    min.cells.feature = min.cells.feat, #200 for 10% and 10 for 1%
+                                                    min.cells.group = 50,
+                                                    test.use = 'wilcox')# 'negbinom', #'wilcox_limma',#'MAST', #
+                                                   # latent.vars = c('Patient.Number')) #For models that accept: 'LR', 'negbinom', 'poisson', or 'MAST')
+                                de <- markers
+                                de$log2FC <- de[[log.name]]   
+                                max_fc <- 100
+                                de <- de %>%
+                                              mutate(
+                                                log2FC = case_when(
+                                                log2FC == Inf ~ max_fc,
+                                                log2FC > max_fc ~ max_fc,
+                                                log2FC < -max_fc ~ -max_fc,
+                                                log2FC == -Inf ~ -max_fc,
+                                                  TRUE ~ log2FC
+                                                )
+                                              ) %>%
+                                              filter(!is.na(p_val_adj))
+                                de$p.adj <- de[[p.name]]
+                                de$Gene <- rownames(de)
+                                de$diffexpressed <- "NO"    
+                                de$diffexpressed[de$log2FC > log_thresh & de$p.adj < p] <- "UP"
+                                de$diffexpressed[de$log2FC < -log_thresh & de$p.adj < p] <- "DOWN"
+                                de$delabel = NA
+                                de$delabel[de$diffexpressed != "NO"] <- de$Gene[de$diffexpressed != "NO"]                  
+                                de <- de %>% arrange(-log2FC,p_val_adj)               
+                                de$contrast <- contrast.str 
+                                fn=paste0(base.fn,'.csv')
+                                write.csv(de,file.path(out.gene.lists,fn))
+            
+                            }
+                            if (save.filtered){
+                                filt.de <- de %>% filter(diffexpressed %in% c('UP','DOWN'))
+                                fn = paste0('filt.',base.fn,'.csv')
+                                write.csv(filt.de, file.path(filt.out.gene.lists,fn))
+                            }
+                            if (plot.volc){
+                                p1 <- volcano.plot(de, p, log_thresh, title)
+                                save.figs(p1, out.de.volcano, base.fn, width=width, height=height)
+                            }
+                            if (plot.heat){
+                                if (cell == 'T cell'){
+                                    ds.pt = 10
+                                    ndeg = 10
+                                } else {
+                                    ds.pt = 200
+                                    ndeg = 15
+                                }
+                                plot.tag <- tag
+                                # make_heatmap_bi(de,sub)
+                     #            make_heatmap_bi <- function(de, counts, use_info, output.path, orig.contrast.col=c(), rankby='log2FC',
+                     # p = 0.05,  log_thresh = 1, heatmap_top_plus_minus_n = 25,
+                     # use.p = 'adj.P.Val', require.p.sig.heatmap = TRUE, version = 1, 
+                     # heat.colormap = 'warm', save.figs =TRUE, save.name.tag='',cluster_rows = TRUE, 
+                     # cluster_cols = TRUE, save_vector_formats = c('.pdf'),
+                     #         added.cols = c(), show_in_line= TRUE){
+                                p2 <- heatmap.plot(de, sub, title, plot.tag = plot.tag,
+                                                   ndeg_top_bottom = ndeg,  p.thresh=p,
+                                                   ds.pt =ds.pt)
+                                if (any(!is.na(p2))){
+                                    save.figs(p2, out.de.heatmap, base.fn,
+                                          width=10, height=5)
+                                }else{
+                                    print('Too few genes for heatmap')
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+})
+
+```
+```{r}
+cell.types <- unique(dat_t@meta.data$general_cell_type)
+
+#exclude <- c('Terminally_exh_Tex_progenitor_1','Tex_Intermediate_Effector',
+#             'Gamma_delta_T_cells','Tissue_resident')
+#cell.types <-  cell.types[!(cell.types %in% exclude)] #too few 'plasmacytoid dendritic cell',
+#print(cell.types)
+#ADD THESE COLUMNS TO THE DAT OBJ
+
+    prj = "HCC-CBS-253-Hillman-LKarapetyan-scRNAseq-revise"
+    base = file.path('/ix/rbao/Projects', prj)
+    data = file.path(base,'results','jwork')
+    scripts= file.path(base,'scripts')
+    results = file.path(base,'results','jwork')
+
+use.tags <- c( 'PFS.6month','timepoint', 'treatment') # 'treatment', 'timepoint',
+test <- 'wilcox'
+log.name <- "avg_log2FC"
+p.name <- 'p_val_adj'
+p = 0.001
+log_threshes = c(1, 1.5)
+save.filtered <- TRUE
+width = 8
+height = 6
+v=1
+suppressWarnings({
+    out.gene.lists <- file.path(results,sprintf('DEG_contrasts_%s_v%d',test,v),'csv')
+    dir.create(out.gene.lists,recursive = TRUE)
+    filt.out.gene.lists <- file.path(results,sprintf('DEG_contrasts_%s_v%d',test,v),'filtered_csv')
+    dir.create(filt.out.gene.lists,recursive = TRUE)
+    out.de.volcano <- file.path(results,sprintf('DEG_contrasts_%s_v%d',test,v),'volcano')
+    dir.create(out.de.volcano,recursive=TRUE)
+    out.de.heatmap <- file.path(results,sprintf('DEG_contrasts_%s_v%d',test,v),'heatmap')
+    dir.create(out.de.heatmap,recursive=TRUE)
+})
+```
+```{r}
+fn <- file.path(results,sprintf('%d_rds_matched_info_pfs_03022026_jw.csv',dim(dat_t@meta.data)[1]))
+print(fn)
+write.csv(dat_t@meta.data, fn)
+```
+```{r}
+plot.volc <- TRUE
+plot.heat <- TRUE
+min.pct <- 0.03
+min.cells.feat = 20
+tissue.types <- c('TIL')
+treatments <- c('combo', 'nivo','rela')
+timepoints <- c('Baseline','Week4') #,'Week16')
+```
+```{r}
+save.figs <- function(p1,out.dir,base.fn,width,height){
+    fn=paste0(base.fn,'.png')
+    ggsave(file.path(out.dir,fn),
+           plot = p1,
+           width = width,
+           height = height,
+           units = 'in')
+    fn=paste0(base.fn,'.pdf')
+    ggsave(file.path(out.dir,fn),
+           plot = p1,
+           width = width,
+           height = height,
+           units = 'in')
+}
+volcano.plot <- function(de,p_thresh,log_thresh,title){
+    max_abs_x <- max(abs(de$log2FC))
+    suppressWarnings({
+        p1 <- ggplot(data=de, aes(x=log2FC, y=-log10(p.adj+1e-300), col=diffexpressed, label=delabel)) +
+                    geom_point() + 
+                    theme_minimal() +
+                    geom_text_repel() +
+                    scale_color_manual(values=c("blue", "black", "red")) +
+                    geom_vline(xintercept=c(-log_thresh, log_thresh), col="red") +
+                    geom_hline(yintercept=-log10(p_thresh), col="red") +
+                    ggtitle(title) +  xlim(-1.05 * max_abs_x, 1.05 * max_abs_x)
+    })
+
+    return(p1)
+    }
+```
+```{r}
+system.time({
+    for (log_thresh in log_threshes){  
+        for (time in timepoints){
+            time.sub <- subset(dat_t, subset = timepoint == time)
+            for (tag in use.tags){
+                if (tag == 'PFS.6month'){
+                    idents <- c('NoPrg6M','Prg6M')
+                }else if (tag == 'timepoint'){
+                    idents <- c('Week4','Baseline')
+                }else if (tag == 'treatment'){
+                    idents <- c('combo','rela','nivo')
+                }else{
+                    idents <- c('yes','no')
+                }
+                comp.sub <- subset(dat_t, subset = !!sym(tag) %in% idents)
+                for (tissue in tissue.types){
+                    tissue.sub <- subset(comp.sub, subset = sample_type == tissue)
+                    for (treatment in treatments){
+                        for (cell in cell.types){
+                            if (tag == 'pathological_response_wk4'){
+                                 title = sprintf('Respnder vs Non-Responder, %s DEGs',cell)
+                            }else if (tag == 'timepoint'){
+                                title = sprintf('Week4 vs Baseline, %s DEGs',cell)
+                            }else if (tag == 'PFS.6month'){
+                                title = sprintf('NoPrg6m vs Prg6M, %s DEGs',cell)
+                            } else{
+                                 title = sprintf('yes vs no, %s DEGs',cell)
+                            }
+                            title = paste(tissue, title)
+                            if (cell != 'all.cells'){
+                                suppressWarnings({sub <- subset(tissue.sub, subset = general_cell_type == cell)})
+                            } else {
+                                sub <- tissue.sub
+                            }
+                            DefaultAssay(sub) <- "RNA"
+                            Idents(sub) <- tag  
+                            contrast.str <- paste0(time,'.',treatment,'.',tissue,'.',
+                                                   tag,'.',idents[1],'.vs.',idents[2])
+                            base.fn <- sprintf('%s.%s.DEG.p%1.3f.log.%1.1f.%s.%d.minpct.v%d',
+                                               contrast.str, cell, p,log_thresh, test, min.pct*100,v)
+                            base.fn <- stringr::str_replace_all(base.fn,' ','.')
+                            fn=paste0(base.fn,'.csv')            
+                            if (file.exists(file.path(out.gene.lists,fn))){
+                                print(paste('Loading',fn))
+                                de <- read.csv(file.path(out.gene.lists,fn),row.names=1)
+                            }else{
+                                print(paste('Generating',fn))            
+                                markers <- FindMarkers(object=sub,
+                                                     ident.1 = idents[1],   
+                                                     ident.2 = idents[2],      
+                                                     base=2,
+                                                    min.pct = min.pct,
+                                                    min.cells.feature = min.cells.feat, #200 for 10% and 10 for 1%
+                                                    min.cells.group = 50,
+                                                    test.use = 'wilcox')# 'negbinom', #'wilcox_limma',#'MAST', #
+                                                   # latent.vars = c('Patient.Number')) #For models that accept: 'LR', 'negbinom', 'poisson', or 'MAST')
+                                de <- markers
+                                de$Gene = row.names(markers)
+                                de$log2FC <- de[[log.name]]   
+                                max_fc <- 100
+                                de <- de %>%
+                                              mutate(
+                                                log2FC = case_when(
+                                                log2FC == Inf ~ max_fc,
+                                                log2FC > max_fc ~ max_fc,
+                                                log2FC < -max_fc ~ -max_fc,
+                                                log2FC == -Inf ~ -max_fc,
+                                                  TRUE ~ log2FC
+                                                )
+                                              ) %>%
+                                              filter(!is.na(p_val_adj)) 
+                                de$p.adj <- de[[p.name]]
+                                de$diffexpressed <- "NO"
+                                de$diffexpressed[de$log2FC > log_thresh & de$p.adj < p] <- "UP"
+                                de$diffexpressed[de$log2FC < -log_thresh & de$p.adj < p] <- "DOWN"
+                                de$diffexpressed <- as.character(de$diffexpressed)
+                                #de$Gene = rownames(de)
+                                de$delabel <- NA # Create the column first
+                                de$delabel[de$diffexpressed != "NO"] <- de$Gene[de$diffexpressed != "NO"]
+                                #de$delabel<- NA
+                                #de$delabel[de$diffexpressed != "NO"] <- de$Gene[de$diffexpressed != "NO"]                      
+                                de <- de %>% arrange(-log2FC,p_val_adj)               
+                                de$contrast <- contrast.str 
+                                fn=paste0(base.fn,'.csv')
+                                write.csv(de,file.path(out.gene.lists,fn))
+            
+                            }
+                            if (save.filtered){
+                                filt.de <- de %>% filter(diffexpressed %in% c('UP','DOWN'))
+                                fn = paste0('filt.',base.fn,'.csv')
+                                write.csv(filt.de, file.path(filt.out.gene.lists,fn))
+                            }
+                            if (plot.volc){
+                                p1 <- volcano.plot(de, p, log_thresh, title)
+                                save.figs(p1, out.de.volcano, base.fn, width=width, height=height)
+                            }
+                            if (plot.heat){
+                                if (cell == 'CD8plus.T.cell'){
+                                    ds.pt = 10
+                                    ndeg = 10
+                                } else {
+                                    ds.pt = 200
+                                    ndeg = 15
+                                }
+                                plot.tag <- tag
+                                # make_heatmap_bi(de,sub)
+                     #            make_heatmap_bi <- function(de, counts, use_info, output.path, orig.contrast.col=c(), rankby='log2FC',
+                     # p = 0.05,  log_thresh = 1, heatmap_top_plus_minus_n = 25,
+                     # use.p = 'adj.P.Val', require.p.sig.heatmap = TRUE, version = 1, 
+                     # heat.colormap = 'warm', save.figs =TRUE, save.name.tag='',cluster_rows = TRUE, 
+                     # cluster_cols = TRUE, save_vector_formats = c('.pdf'),
+                     #         added.cols = c(), show_in_line= TRUE){
+                                p2 <- heatmap.plot(de, sub, title, plot.tag = plot.tag,
+                                                   ndeg_top_bottom = ndeg,  p.thresh=p,
+                                                   ds.pt =ds.pt)
+                                if (any(!is.na(p2))){
+                                    save.figs(p2, out.de.heatmap, base.fn,
+                                          width=10, height=5)
+                                }else{
+                                    print('Too few genes for heatmap')
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+})
+
+```
+```{r}
+save.figs <- function(p1,out.dir,base.fn,width,height){
+    fn=paste0(base.fn,'.png')
+    ggsave(file.path(out.dir,fn),
+           plot = p1,
+           width = width,
+           height = height,
+           units = 'in')
+    fn=paste0(base.fn,'.pdf')
+    ggsave(file.path(out.dir,fn),
+           plot = p1,
+           width = width,
+           height = height,
+           units = 'in')
+}
+volcano.plot <- function(de,p_thresh,log_thresh,title){
+    max_abs_x <- max(abs(de$log2FC))
+    suppressWarnings({
+        p1 <- ggplot(data=de, aes(x=log2FC, y=-log10(p.adj+1e-300), col=diffexpressed, label=delabel)) +
+                    geom_point() + 
+                    theme_minimal() +
+                    geom_text_repel() +
+                    scale_color_manual(values=c("blue", "black", "red")) +
+                    geom_vline(xintercept=c(-log_thresh, log_thresh), col="red") +
+                    geom_hline(yintercept=-log10(p_thresh), col="red") +
+                    ggtitle(title) +  xlim(-1.05 * max_abs_x, 1.05 * max_abs_x)
+    })
+
+    return(p1)
+    }
+
+heatmap.plot <- function(de,sub,title, ds.pt = 100,
+                          ndeg_top_bottom=15, 
+                          p.thresh=0.05,
+                          plot.tag = c('response_status','TIL')
+                          ){
+
+     DefaultAssay(sub) <- "RNA"
+     Idents(object=sub) <- 'general_cell_type'
+     suppressWarnings({sub <- subset(sub, downsample = ds.pt)})
+     DefaultAssay(sub) <- "RNA"
+     #exclude.tma <- df[grepl(pattern = 'TMA',x = df$Original.ID),'CGF.Sample.ID']
+     annotation_col <- sub@meta.data$treatment
+     ndeg = ndeg_top_bottom
+     de %>% filter(p_val_adj <  p.thresh) %>% filter(avg_log2FC >0 ) %>%
+                 top_n(n = ndeg, wt =  avg_log2FC) -> top
+     de %>% filter(p_val_adj <  p.thresh) %>% filter(avg_log2FC <0) %>%
+                 top_n(n = ndeg, wt = -avg_log2FC) -> bottom
+     temp <- rbind(top,bottom)
+     use.genes <- unique(temp$Gene)  
+     lognorm.dat <- as.matrix(sub@assays[use.genes,
+                                                      row.names(annotation_col),
+                                                      drop = FALSE])
+     if (length(use.genes) <= 1){
+         return(NA)
+     }
+     ann_colors <- smoker.ann.colors(plot.tag)
+     # 5. Plot with pheatmap (row scaling built-in)
+      p1 <- pheatmap.wrapper(lognorm.dat, 
+                             annotation_col,
+                             ann_colors,
+                             title)
+     return(p1)
+ }
+ smoker.ann.colors <- function(plot.tag){
+     smoker_colors <- c("yes" = "red", "no" = "gray80")
+     response_colors <- c("R" = "green3", "NR" = "black")
+     # 4. Define annotation colors
+     if (length(plot.tag) == 2){
+         ann_colors <- list(
+           response_status = response_colors,
+           any_tobacco_smoker = smoker_colors
+         )
+     }else if (plot.tag[1] == 'response_status'){
+         ann_colors <- list( response_status = response_colors)
+     }else if (plot.tag[1] == 'any_tobacco_smoker'){
+         ann_colors <- list(any_tobacco_smoker = smoker_colors)
+     }
+     return(ann_colors)
+ }
+ pheatmap.wrapper <- function(lognorm.dat, annotation_col, 
+                              ann_colors, title, cluster_rows=TRUE,
+                              cluster_cols=TRUE,
+                              scale="row"){    
+  
+    p1<- pheatmap(
+       lognorm.dat,
+       main = title,
+       scale = scale,                 # row-wise z-score normalization
+       annotation_col = annotation_col,
+       annotation_colors = ann_colors,
+       clustering_method = "complete",
+       cluster_rows = cluster_rows,
+       cluster_cols = cluster_cols,
+       color = colorRampPalette(c("navy", "white", "firebrick3"))(100),
+       show_colnames = FALSE,
+       show_rownames = TRUE
+     ) 
+     return(p1)
+ }
+     
+
+```
+```{r}
+#TIL LOOP
+
+
+    prj = "HCC-CBS-253-Hillman-LKarapetyan-scRNAseq-revise"
+    base = file.path('/ix/rbao/Projects', prj)
+    data = file.path(base,'results','jwork')
+    scripts= file.path(base,'scripts')
+    results = file.path(base,'results','jwork')
+fn <- file.path(results,sprintf('%d_rds_matched_info_pfs_til_03022026_jw.csv',dim(dat_t@meta.data)[1]))
+use.tags <- c( 'PFS.6month','timepoint', 'treatment') # 'treatment', 'timepoint',
+test <- 'wilcox'
+log.name <- "avg_log2FC"
+p.name <- 'p_val_adj'
+p = 0.001
+log_threshes = c(1, 1.5)
+save.filtered <- TRUE
+width = 8
+height = 6
+v=1
+suppressWarnings({
+    out.gene.lists <- file.path(results,sprintf('DEG_contrasts_TIL_%s_v%d',test,v),'csv')
+    dir.create(out.gene.lists,recursive = TRUE)
+    filt.out.gene.lists <- file.path(results,sprintf('DEG_contrasts_TIL_%s_v%d',test,v),'filtered_csv')
+    dir.create(filt.out.gene.lists,recursive = TRUE)
+    out.de.volcano <- file.path(results,sprintf('DEG_contrasts_TIL_%s_v%d',test,v),'volcano')
+    dir.create(out.de.volcano,recursive=TRUE)
+    out.de.heatmap <- file.path(results,sprintf('DEG_contrasts_TIL_%s_v%d',test,v),'heatmap')
+    dir.create(out.de.heatmap,recursive=TRUE)
+})
+print(fn)
+write.csv(dat_t@meta.data, fn)
+plot.volc <- TRUE
+plot.heat <- FALSE
+min.pct <- 0.03
+min.cells.feat = 20
+tissue.types <- c('TIL')
+treatments <- c('combo', 'nivo','rela')
+timepoints <- c('Baseline','Week4') #,'Week16')
+```
+```{r}
+system.time({
+for (log_thresh in log_threshes){
+for (time in timepoints){
+time.sub <- subset(dat_t, subset = timepoint == time)
+for (tag in use.tags){
+if (tag == 'PFS.6month'){
+idents <- c('NoPrg6M','Prg6M')
+}else if (tag == 'timepoint'){
+idents <- c('Week4','Baseline')
+}else if (tag == 'treatment'){
+idents <- c('combo','rela','nivo')
+}else{
+idents <- c('yes','no')
+}
+comp.sub <- subset(dat_t, subset = !!sym(tag) %in% idents)
+for (tissue in tissue.types){
+tissue.sub <- subset(comp.sub, subset = sample_type == tissue)
+for (treatment in treatments){
+for (cell in cell.types){
+if (tag == 'pathological_response_wk4'){
+title = sprintf('Respnder vs Non-Responder, %s DEGs',cell)
+}else if (tag == 'timepoint'){
+title = sprintf('Week4 vs Baseline, %s DEGs',cell)
+}else if (tag == 'PFS.6month'){
+title = sprintf('NoPrg6m vs Prg6M, %s DEGs',cell)
+} else{
+title = sprintf('yes vs no, %s DEGs',cell)
+}
+title = paste(tissue, title)
+if (cell != 'all.cells'){
+suppressWarnings({sub <- subset(tissue.sub, subset = general_cell_type == cell)})
+} else {
+sub <- tissue.sub
+}
+DefaultAssay(sub) <- "RNA"
+Idents(sub) <- tag
+contrast.str <- paste0(time,'.',treatment,'.',tissue,'.',
+tag,'.',idents[1],'.vs.',idents[2])
+base.fn <- sprintf('%s.%s.DEG.p%1.3f.log.%1.1f.%s.%d.minpct.v%d',
+contrast.str, cell, p,log_thresh, test, min.pct*100,v)
+base.fn <- stringr::str_replace_all(base.fn,' ','.')
+fn=paste0(base.fn,'.csv')
+if (file.exists(file.path(out.gene.lists,fn))){
+print(paste('Loading',fn))
+de <- read.csv(file.path(out.gene.lists,fn),row.names=1)
+}else{
+print(paste('Generating',fn))
+markers <- FindMarkers(object=sub,
+ident.1 = idents[1],
+ident.2 = idents[2],
+base=2,
+min.pct = min.pct,
+min.cells.feature = min.cells.feat, #200 for 10% and 10 for 1%
+min.cells.group = 50,
+test.use = 'wilcox')# 'negbinom', #'wilcox_limma',#'MAST', #
+# latent.vars = c('Patient.Number')) #For models that accept: 'LR', 'negbinom', 'poisson', or 'MAST')
+de <- markers
+de$Gene = row.names(markers)
+de$log2FC <- de[[log.name]]
+max_fc <- 100
+de <- de %>%
+mutate(
+log2FC = case_when(
+log2FC == Inf ~ max_fc,
+log2FC > max_fc ~ max_fc,
+log2FC < -max_fc ~ -max_fc,
+log2FC == -Inf ~ -max_fc,
+TRUE ~ log2FC
+)
+) %>%
+filter(!is.na(p_val_adj))
+de$p.adj <- de[[p.name]]
+de$diffexpressed <- "NO"
+de$diffexpressed[de$log2FC > log_thresh & de$p.adj < p] <- "UP"
+de$diffexpressed[de$log2FC < -log_thresh & de$p.adj < p] <- "DOWN"
+de$diffexpressed <- as.character(de$diffexpressed)
+#de$Gene = rownames(de)
+de$delabel <- NA # Create the column first
+de$delabel[de$diffexpressed != "NO"] <- de$Gene[de$diffexpressed != "NO"]
+#de$delabel<- NA
+#de$delabel[de$diffexpressed != "NO"] <- de$Gene[de$diffexpressed != "NO"]
+de <- de %>% arrange(-log2FC,p_val_adj)
+de$contrast <- contrast.str
+fn=paste0(base.fn,'.csv')
+write.csv(de,file.path(out.gene.lists,fn))
+}
+if (save.filtered){
+filt.de <- de %>% filter(diffexpressed %in% c('UP','DOWN'))
+fn = paste0('filt.',base.fn,'.csv')
+write.csv(filt.de, file.path(filt.out.gene.lists,fn))
+}
+if (plot.volc){
+p1 <- volcano.plot(de, p, log_thresh, title)
+save.figs(p1, out.de.volcano, base.fn, width=width, height=height)
+}
+if (plot.heat){
+if (cell == 'CD8plus.T.cell'){
+ds.pt = 10
+ndeg = 10
+} else {
+ds.pt = 200
+ndeg = 15
+}
+plot.tag <- tag
+# make_heatmap_bi(de,sub)
+#            make_heatmap_bi <- function(de, counts, use_info, output.path, orig.contrast.col=c(), rankby='log2FC',
+# p = 0.05,  log_thresh = 1, heatmap_top_plus_minus_n = 25,
+# use.p = 'adj.P.Val', require.p.sig.heatmap = TRUE, version = 1,
+# heat.colormap = 'warm', save.figs =TRUE, save.name.tag='',cluster_rows = TRUE,
+# cluster_cols = TRUE, save_vector_formats = c('.pdf'),
+#         added.cols = c(), show_in_line= TRUE){
+p2 <- heatmap.plot(de, sub, title, plot.tag = plot.tag,
+ndeg_top_bottom = ndeg,  p.thresh=p,
+ds.pt =ds.pt)
+if (any(!is.na(p2))){
+save.figs(p2, out.de.heatmap, base.fn,
+width=10, height=5)
+}else{
+print('Too few genes for heatmap')
+}
+}
+}
+}
+}
+}
+}
+}
+})
+
+```
+```{r}
+#PBMC LOOP
+dat_p = qread("dat-pbmc-prog-col.qs")
+prj = "HCC-CBS-253-Hillman-LKarapetyan-scRNAseq-revise"
+base = file.path('/ix/rbao/Projects', prj)
+data = file.path(base,'results','jwork')
+scripts= file.path(base,'scripts')
+results = file.path(base,'results','jwork')
+fn <- file.path(results,sprintf('%d_rds_matched_info_pbmc_pfs_03022026_jw.csv',dim(dat_p@meta.data)[1]))
+use.tags <- c( 'PFS.6month','timepoint', 'treatment') # 'treatment', 'timepoint',
+test <- 'wilcox'
+log.name <- "avg_log2FC"
+p.name <- 'p_val_adj'
+p = 0.001
+log_threshes = c(1, 1.5)
+save.filtered <- TRUE
+width = 8
+height = 6
+v=1
+suppressWarnings({
+    out.gene.lists <- file.path(results,sprintf('DEG_contrasts_PBMC_%s_v%d',test,v),'csv')
+    dir.create(out.gene.lists,recursive = TRUE)
+    filt.out.gene.lists <- file.path(results,sprintf('DEG_contrasts_PBMC_%s_v%d',test,v),'filtered_csv')
+    dir.create(filt.out.gene.lists,recursive = TRUE)
+    out.de.volcano <- file.path(results,sprintf('DEG_contrasts_PBMC_%s_v%d',test,v),'volcano')
+    dir.create(out.de.volcano,recursive=TRUE)
+    out.de.heatmap <- file.path(results,sprintf('DEG_contrasts_PBMC_%s_v%d',test,v),'heatmap')
+    dir.create(out.de.heatmap,recursive=TRUE)
+})
+print(fn)
+write.csv(dat_p@meta.data, fn)
+plot.volc <- TRUE
+plot.heat <- FALSE
+min.pct <- 0.03
+min.cells.feat = 20
+tissue.types <- c('PBMC')
+treatments <- c('combo', 'nivo','rela')
+timepoints <- c('Baseline','Week4') #,'Week16')
+```
+```{r}
+#PBMC loop
+system.time({
+for (log_thresh in log_threshes){
+for (time in timepoints){
+time.sub <- subset(dat_p, subset = timepoint == time)
+for (tag in use.tags){
+if (tag == 'PFS.6month'){
+idents <- c('NoPrg6M','Prg6M')
+}else if (tag == 'timepoint'){
+idents <- c('Week4','Baseline')
+}else if (tag == 'treatment'){
+idents <- c('combo','rela','nivo')
+}else{
+idents <- c('yes','no')
+}
+comp.sub <- subset(dat_p, subset = !!sym(tag) %in% idents)
+for (tissue in tissue.types){
+tissue.sub <- subset(comp.sub, subset = sample_type == tissue)
+for (treatment in treatments){
+for (cell in cell.types){
+if (tag == 'pathological_response_wk4'){
+title = sprintf('Respnder vs Non-Responder, %s DEGs',cell)
+}else if (tag == 'timepoint'){
+title = sprintf('Week4 vs Baseline, %s DEGs',cell)
+}else if (tag == 'PFS.6month'){
+title = sprintf('NoPrg6m vs Prg6M, %s DEGs',cell)
+} else{
+title = sprintf('yes vs no, %s DEGs',cell)
+}
+title = paste(tissue, title)
+if (cell != 'all.cells'){
+suppressWarnings({sub <- subset(tissue.sub, subset = general_cell_type == cell)})
+} else {
+sub <- tissue.sub
+}
+DefaultAssay(sub) <- "RNA"
+Idents(sub) <- tag
+contrast.str <- paste0(time,'.',treatment,'.',tissue,'.',
+tag,'.',idents[1],'.vs.',idents[2])
+base.fn <- sprintf('%s.%s.DEG.p%1.3f.log.%1.1f.%s.%d.minpct.v%d',
+contrast.str, cell, p,log_thresh, test, min.pct*100,v)
+base.fn <- stringr::str_replace_all(base.fn,' ','.')
+fn=paste0(base.fn,'.csv')
+if (file.exists(file.path(out.gene.lists,fn))){
+print(paste('Loading',fn))
+de <- read.csv(file.path(out.gene.lists,fn),row.names=1)
+}else{
+print(paste('Generating',fn))
+markers <- FindMarkers(object=sub,
+ident.1 = idents[1],
+ident.2 = idents[2],
+base=2,
+min.pct = min.pct,
+min.cells.feature = min.cells.feat, #200 for 10% and 10 for 1%
+min.cells.group = 50,
+test.use = 'wilcox')# 'negbinom', #'wilcox_limma',#'MAST', #
+# latent.vars = c('Patient.Number')) #For models that accept: 'LR', 'negbinom', 'poisson', or 'MAST')
+de <- markers
+de$Gene = row.names(markers)
+de$log2FC <- de[[log.name]]
+max_fc <- 100
+de <- de %>%
+mutate(
+log2FC = case_when(
+log2FC == Inf ~ max_fc,
+log2FC > max_fc ~ max_fc,
+log2FC < -max_fc ~ -max_fc,
+log2FC == -Inf ~ -max_fc,
+TRUE ~ log2FC
+)
+) %>%
+filter(!is.na(p_val_adj))
+de$p.adj <- de[[p.name]]
+de$diffexpressed <- "NO"
+de$diffexpressed[de$log2FC > log_thresh & de$p.adj < p] <- "UP"
+de$diffexpressed[de$log2FC < -log_thresh & de$p.adj < p] <- "DOWN"
+de$diffexpressed <- as.character(de$diffexpressed)
+#de$Gene = rownames(de)
+de$delabel <- NA # Create the column first
+de$delabel[de$diffexpressed != "NO"] <- de$Gene[de$diffexpressed != "NO"]
+#de$delabel<- NA
+#de$delabel[de$diffexpressed != "NO"] <- de$Gene[de$diffexpressed != "NO"]
+de <- de %>% arrange(-log2FC,p_val_adj)
+de$contrast <- contrast.str
+fn=paste0(base.fn,'.csv')
+write.csv(de,file.path(out.gene.lists,fn))
+}
+if (save.filtered){
+filt.de <- de %>% filter(diffexpressed %in% c('UP','DOWN'))
+fn = paste0('filt.',base.fn,'.csv')
+write.csv(filt.de, file.path(filt.out.gene.lists,fn))
+}
+if (plot.volc){
+p1 <- volcano.plot(de, p, log_thresh, title)
+save.figs(p1, out.de.volcano, base.fn, width=width, height=height)
+}
+if (plot.heat){
+if (cell == 'CD8plus.T.cell'){
+ds.pt = 10
+ndeg = 10
+} else {
+ds.pt = 200
+ndeg = 15
+}
+plot.tag <- tag
+# make_heatmap_bi(de,sub)
+#            make_heatmap_bi <- function(de, counts, use_info, output.path, orig.contrast.col=c(), rankby='log2FC',
+# p = 0.05,  log_thresh = 1, heatmap_top_plus_minus_n = 25,
+# use.p = 'adj.P.Val', require.p.sig.heatmap = TRUE, version = 1,
+# heat.colormap = 'warm', save.figs =TRUE, save.name.tag='',cluster_rows = TRUE,
+# cluster_cols = TRUE, save_vector_formats = c('.pdf'),
+#         added.cols = c(), show_in_line= TRUE){
+p2 <- heatmap.plot(de, sub, title, plot.tag = plot.tag,
+ndeg_top_bottom = ndeg,  p.thresh=p,
+ds.pt =ds.pt)
+if (any(!is.na(p2))){
+save.figs(p2, out.de.heatmap, base.fn,
+width=10, height=5)
+}else{
+print('Too few genes for heatmap')
+}
+}
+}
+}
+}
+}
+}
+}
+})
+```

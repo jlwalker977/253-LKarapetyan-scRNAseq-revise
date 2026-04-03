@@ -1,0 +1,1182 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+shhh <- suppressPackageStartupMessages
+shhh(library(Matrix))
+shhh(library(SingleR))
+shhh(library(celldex))
+shhh(library(hdf5r))
+shhh(library(dplyr))
+shhh(library(Seurat))
+shhh(library(stringr))
+shhh(library(tidyr))
+shhh(library(ggplot2))
+shhh(library(patchwork))
+shhh(library(Seurat))
+shhh(library(SingleR))
+shhh(library(ggrepel))
+shhh(library(qs))
+shhh(library(tidytext))
+shhh(library(pheatmap))
+shhh(library(ComplexHeatmap))
+shhh(library(ggpubr))
+shhh(library(rstatix))
+shhh(library(SingleR))
+shhh(library(edgeR))
+shhh(library(slingshot))
+shhh(library(RColorBrewer))
+```
+```{r}
+#integrate layers
+seu1[["RNA"]] = split(seu1[["RNA"]], f=seu1@meta.data$patient_id)
+seu1 <- IntegrateLayers(
+object = seu1, method = CCAIntegration,
+orig.reduction = "pca", new.reduction = "integrated.cca",
+verbose = FALSE)
+#rejoin layers
+seu1[["RNA"]] = JoinLayers(seu1[["RNA"]])
+#save RDS
+saveRDS(seu1, file="seu1-post-integration2.rds")
+#save image/RData
+save.image("/ix/rbao/Projects/HCC-CBS-253-Hillman-LKarapetyan-scRNAseq-revise/results/jwork/021326-1-seu1-post-integration.RData")
+savehistory("/ix/rbao/Projects/HCC-CBS-253-Hillman-LKarapetyan-scRNAseq-revise/results/jwork/021326-1-seu1-post-integration.Rhistory")
+
+```
+```{r}
+Man_0.1_celltypes = c("Neuroblastoma", "Monocytes.+.Macrophages", "NK.cells", "Luminal.breast.cancer.cells", "exhausted.CD8+.T.cells.(Tex)", "B.cells", "Tumor.associated.macrophages.(TAMs)", "Chromatin.remodelers", "Plasma.cells", "CD8+.tissue.resident.memory.T.cells.(Trm)", "Neutrophils", "Erythroid.cells")
+RNA_snn_res.0.1=c(1,2,3,4,5,6,7,8,9,10,11,12)
+man_0.1_labels=as.data.frame(cbind(RNA_snn_res.0.1, Man_0.1_celltypes))
+
+
+RNA_snn_res.0.25 = c(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20)
+Man_0.25_celltypes = c("Naive.CD4+.T.cells", "NK.cells", "Myeloid.cells", "CD8+.Effector.Memory.T.cells.(Tem)", "Stem.cells", "CD8+.Tumor.Infiltrating.Lymphocytes.(TILs)", "CD8+.T.cells.exhausted.(Tex)", "Naive.or.Mature.B.cells", "Tumor.Associated.Macrophages.(TAMs)", "Macrophages.or.Dendritic.cells", "Activated.Macrophages", "CD8+.Tissue.Resident.Memory.T.cells.(Trm)", "Plasma.cells", "Neutrophils", "Cancer.Associated.Fibroblasts", "B.cells", "Tumor.Associated.Macrophages.(TAMs)", "Epithelial.cells", "B.cells", "Erythroid.cells")
+man_0.25_labels=as.data.frame(cbind(RNA_snn_res.0.25, Man_0.25_celltypes))
+
+'/ix/rbao/Projects/HCC-CBS-253-Hillman-LKarapetyan-scRNAseq-revise/results/jwork/seu5-proj253-intd-man-celltypes.qs'
+
+RNA_snn_res.0.18 = c(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16)
+Man_0.18_celltypes = c("Naive.CD4+.T.cells", "Monocytes/Macrophages", "NK.cells", "CD8+.tissue-resident.memory.T.cells(Trm)", "Cancer.Associated.Fibroblasts", "Exhausted.T.cells(Tex)", "Mature.B.cells", "Tumor.Associated.Macrophages(TAMs)", "M2.Macrophages", "Breast.Cancer.Metastatic.cells", "Plasma.cells", "Neutrophils", "Mature.B.cells.2", "Neutrophils.2", "Naive.B.cells", "Erythrocytes")
+```
+```{r}
+ps_seu5 <- AggregateExpression(seu5, assays = "RNA", return.seurat = T, group.by = c("patient_id", "timepoint", "treatment"))
+ps_seu5$time.treatment <- paste(ps_seu5$timepoint, ps_seu5$treatment, sep = "_")
+Idents(ps_seu5) <- "time.treatment"
+bulk.combo1.de <- FindMarkers(object = ps55, 
+                         ident.1 = "Baseline_combo", 
+                         ident.2 = "Week4_combo",
+                         test.use = "DESeq2")
+#head(bulk.combo1.de, n = 15)
+#head(bulk.combo2.de, n = 15)
+#bulk.combo2.de doesn't work bc Week12_combo only has 1 replicate. Need at least 3 to do the deseq2 comparison
+bulk.combo3.de <- FindMarkers(object = ps55, 
+                         ident.1 = "Baseline_combo", 
+                         ident.2 = "Week12.or.16_combo",
+                         test.use = "DESeq2")
+#head(bulk.combo3.de, n = 15)
+bulk.combo4.de <- FindMarkers(object = ps55, 
+                         ident.1 = "Week4_combo", 
+                         ident.2 = "Week12.or.16_combo",
+                         test.use = "DESeq2")
+#head(bulk.combo4.de, n = 15)
+#RELA
+bulk.rela1.de <- FindMarkers(object = ps55, 
+                         ident.1 = "Baseline_rela", 
+                         ident.2 = "Week4_rela",
+                         test.use = "DESeq2")
+head(bulk.rela1.de, n = 15)
+bulk.rela2.de <- FindMarkers(object = ps55, 
+                         ident.1 = "Baseline_rela", 
+                         ident.2 = "Week12.or.16_rela",
+                         test.use = "DESeq2")
+#head(bulk.rela2.de, n = 15)
+bulk.rela3.de <- FindMarkers(object = ps55, 
+                         ident.1 = "Week4_rela", 
+                         ident.2 = "Week12.or.16_rela",
+                         test.use = "DESeq2")
+#head(bulk.rela3.de, n = 15)
+#NIVO
+bulk.nivo1.de <- FindMarkers(object = ps55, 
+                         ident.1 = "Baseline_nivo", 
+                         ident.2 = "Week4_nivo",
+                         test.use = "DESeq2")
+#head(bulk.nivo1.de, n = 15)
+bulk.nivo2.de <- FindMarkers(object = ps55, 
+                         ident.1 = "Baseline_nivo", 
+                         ident.2 = "Week12.or.16_nivo",
+                         test.use = "DESeq2")
+#head(bulk.nivo2.de, n = 15)
+bulk.nivo3.de <- FindMarkers(object = ps55, 
+                         ident.1 = "Week4_nivo", 
+                         ident.2 = "Week12.or.16_nivo",
+                         test.use = "DESeq2")
+#head(bulk.nivo3.de, n = 15)
+
+write.table(bulk.combo1.de, file="bulk.combo1.de.output.tsv", sep='\t')
+write.table(bulk.combo3.de, file="bulk.combo3.de.output.tsv", sep='\t')
+write.table(bulk.combo4.de, file="bulk.combo4.de.output.tsv", sep='\t')
+write.table(bulk.rela1.de, file="bulk.rela1.de.output.tsv", sep='\t')
+write.table(bulk.rela2.de, file="bulk.rela2.de.output.tsv", sep='\t')
+write.table(bulk.rela3.de, file="bulk.rela3.de.output.tsv", sep='\t')
+write.table(bulk.nivo1.de, file="bulk.nivo1.de.output.tsv", sep='\t')
+write.table(bulk.nivo2.de, file="bulk.nivo2.de.output.tsv", sep='\t')
+write.table(bulk.nivo3.de, file="bulk.nivo3.de.output.tsv", sep='\t')
+
+psmdlf4$treatment = as.factor(psmdlf4$treatment, levels=c("Baseline", "Week4", "Week16"))
+ggplot(df, aes(x=x, y=y)) +
+  geom_point() +
+  facet_wrap(~forcats::fct_relevel(category, "Low", "Medium", "High"))
+
+new_labels <- c("A" = "Group A", "B" = "Group B")
+
+ggplot(data, aes(x, y)) +
+  geom_point() +
+  facet_wrap(~variable, labeller = as_labeller(new_labels))
+stat_compare_means(paired = TRUE,method='t.test',aes(label = paste0("p = ", after_stat(p.format))),size=p_font)
+
+stat_compare_means(paired=TRUE, method = "anova", label.y = 40)
+
+my_comparisons <- list(c("0.5", "1"), c("1", "2"), c("0.5", "2"))
+my_comparisons = list(c("Baseline_combo", "Baseline_nivo"), c("Baseline_nivo", "Baseline_rela"), c("Baseline_combo", "Baseline_rela"), c("Week4_combo", "Week4_nivo"), c("Week4_nivo", "Week4_rela"), c("Week4_combo", "Week4_rela"), c("Week12.or.16_combo", "Week12.or.16_nivo"), c("Week12.or.16_nivo", "Week12.or.16_rela"), c("Week12.or.16_combo", "Week12.or.16_rela"))
+
+stat_compare_means(paired = TRUE,method='t.test',aes(label = paste0("p = ", after_stat(p.format))),size = p_font)
+
+psmdl55$time.treatment = as.factor(psmdl55$time.treatment)
+levels(psmdl55$time.treatment) = c("Baseline_combo", "Baseline_nivo", "Baseline_rela", "Week4_combo", "Week4_nivo", "Week4_rela", "Week12.or.16_combo", "Week12.to.16_nivo", "Week12.or.16_rela")
+#MAKING TABLES LONGER FOR PLOTTING
+psmdl5s2$time.treatment = as.factor(psmdl5s2$time.treatment)
+levels(psmdl5s2$time.treatment) = c("Baseline_Combo", "Baseline_Nivo", "Baseline_Rela", "Week4_Combo", "Week4_Nivo", "Week4_Rela", "Week12.or.16_Combo", "Week12.to.16_Nivo", "Week12.or.16_Rela")
+psmdl5s2$time2 = as.factor(psmdl5s2$time2)
+levels(psmdl5s2$time2) = c("Baseline", "Week4", "Week12.or.16")
+psmdl5s2$Lead_in = as.factor(psmdl5s2$Lead_in)
+levels(psmdl5s2$Lead_in) = c("Combo", "Nivo", "Rela")
+
+#MAKING LONG TABLE WITH JUST IFNG SCORES
+psmdl5s2_ifng$time.treatment = as.factor(psmdl5s2_ifng$time.treatment)
+levels(psmdl5s2_ifng$time.treatment) = c("Baseline_Combo", "Baseline_Nivo", "Baseline_Rela", "Week4_Combo", "Week4_Nivo", "Week4_Rela", "Week12.or.16_Combo", "Week12.to.16_Nivo", "Week12.or.16_Rela")
+psmdl5s2_ifng$time2 = as.factor(psmdl5s2_ifng$time2)
+levels(psmdl5s2_ifng$time2) = c("Baseline", "Week4", "Week12.or.16")
+psmdl5s2_ifng$Lead_in = as.factor(psmdl5s2_ifng$Lead_in)
+levels(psmdl5s2_ifng$Lead_in) = c("Combo", "Nivo", "Rela")
+
+#MAKING LONG TABLE WITH JUST CYT SCORES
+psmdl5s2_cyt <- ps5s2meta2 %>%
+     pivot_longer(
+         cols = c("CYT.score1"),
+         names_to = "Sample.Type",
+         values_to = "CYT.score")
+
+psmdl5s2_cyt$time.treatment = as.factor(psmdl5s2_cyt$time.treatment)
+levels(psmdl5s2_cyt$time.treatment) = c("Baseline_Combo", "Baseline_Nivo", "Baseline_Rela", "Week4_Combo", "Week4_Nivo", "Week4_Rela", "Week12.or.16_Combo", "Week12.to.16_Nivo", "Week12.or.16_Rela")
+psmdl5s2_cyt$time2 = as.factor(psmdl5s2_cyt$time2)
+levels(psmdl5s2_cyt$time2) = c("Baseline", "Week4", "Week12.or.16")
+psmdl5s2_cyt$Lead_in = as.factor(psmdl5s2_cyt$Lead_in)
+levels(psmdl5s2_cyt$Lead_in) = c("Combo", "Nivo", "Rela")
+
+#MAKING LONG TABLE WITH JUST APS SCORES
+psmdl5s2_aps <- ps5s2meta2 %>%
+     pivot_longer(
+         cols = c("APS.score1"),
+         names_to = "Sample.Type",
+         values_to = "APS.score")
+
+
+
+psmdl5s2_aps$time.treatment = as.factor(psmdl5s2_aps$time.treatment)
+levels(psmdl5s2_aps$time.treatment) = c("Baseline_Combo", "Baseline_Nivo", "Baseline_Rela", "Week4_Combo", "Week4_Nivo", "Week4_Rela", "Week12.or.16_Combo", "Week12.to.16_Nivo", "Week12.or.16_Rela")
+psmdl5s2_aps$time2 = as.factor(psmdl5s2_aps$time2)
+levels(psmdl5s2_aps$time2) = c("Baseline", "Week4", "Week12.or.16")
+psmdl5s2_aps$Lead_in = as.factor(psmdl5s2_aps$Lead_in)
+levels(psmdl5s2_aps$Lead_in) = c("Combo", "Nivo", "Rela")
+
+saveRDS(psmdl5s2_ifng, file="psmdl5s2-longer-ifng-score-only.rds")
+write.csv(psmdl5s2_ifng, file="psmdl5s2-longer-ifng-score-only.csv")
+saveRDS(psmdl5s2_cyt, file="psmdl5s2-longer-cyt-score-only.rds")
+write.csv(psmdl5s2_cyt, file="psmdl5s2-longer-cyt-score-only.csv")
+saveRDS(psmdl5s2_aps, file="psmdl5s2-longer-aps-score-only.rds")
+write.csv(psmdl5s2_aps, file="psmdl5s2-longer-aps-score-only.csv")
+```
+```{r}
+ptreat_ifng = ggplot(psmdl5s2_ifng, aes(x = time.treatment, y = IFNg.score, color=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of IFNg Scores for PFS data",
+y = "IFNg.score",
+x = "Treatment") +facet_wrap(~Lead_in, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+ptreat_cyt = ggplot(psmdl5s2_cyt, aes(x = time.treatment, y = CYT.score, color=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of CYT Scores for PFS data",
+y = "CYT.score",
+x = "Treatment") +facet_wrap(~Lead_in, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+ptreat_aps = ggplot(psmdl5s2_aps, aes(x = time.treatment, y = APS.score, color=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of APS Scores for PFS data",
+y = "APS.score",
+x = "Treatment") +facet_wrap(~Lead_in, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+pfsplot_ifng = ggplot(psmdl5s2_ifng, aes(x = time.treatment, y = IFNg.score, color=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of IFNg Scores for PFS data",
+y = "IFNg.score",
+x = "Treatment") +facet_wrap(~PFS.6month.status, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+pfsplot_ifng_time = ggplot(psmdl5s2_ifng, aes(x = time.treatment, y = IFNg.score, color=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of IFNg Scores for PFS data",
+y = "IFNg.score",
+x = "Treatment") +facet_wrap(~PFS.6month.status+time2, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+pfsplot_cyt= ggplot(psmdl5s2_cyt, aes(x = time.treatment, y = CYT.score, color=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of CYT Scores for PFS data",
+y = "CYT.score",
+x = "Treatment") +facet_wrap(~PFS.6month.status, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+pfsplot_cyt_time = ggplot(psmdl5s2_cyt, aes(x = time.treatment, y = CYT.score, color=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of CYT Scores for PFS data",
+y = "CYT.score",
+x = "Treatment") +facet_wrap(~PFS.6month.status+time2, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+pfsplot_aps= ggplot(psmdl5s2_aps, aes(x = time.treatment, y = APS.score, color=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of APS Scores for PFS data",
+y = "APS.score",
+x = "Treatment") +facet_wrap(~PFS.6month.status, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+pfsplot_aps_time= ggplot(psmdl5s2_aps, aes(x = time.treatment, y = APS.score, color=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of APS Scores for PFS data",
+y = "APS.score",
+x = "Treatment") +facet_wrap(~PFS.6month.status+time2, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+#AUTOMATE THESE
+savehistory("/ix/rbao/Projects/HCC-CBS-253-Hillman-LKarapetyan-scRNAseq-revise/results/jwork/022026-4-seu5s2-pfs-plots-quick.Rhistory")
+save.image("/ix/rbao/Projects/HCC-CBS-253-Hillman-LKarapetyan-scRNAseq-revise/results/jwork/022026-4-seu5s2-pfs-plots-quick.RData")
+
+
+```
+```{r}
+#MODULE SCORE CALCULATIONS
+ps5s2 = AddModuleScore(
+object = ps5s2,
+features = list(ifng_genelist),
+name = "IFNg.score")
+
+ps5s2 = AddModuleScore(
+object = ps5s2,
+features = list(cyt_genelist),
+name = "CYT.score")
+
+ps5s2 = AddModuleScore(
+object = ps5s2,
+features = list(aps_genelist),
+name = "APS.score")
+
+ifng_genelist = c("CCL5", "CD27", "CD274","CD276", "CD8A", "CMKLR1", "CXCL9", "CXCR6", "HLA-DQA1", "HLA-DRB1", "HLA-E", "IDO1", "LAG3", "NKG7", "PDCD1LG2", "PSMB10", "STAT1", "TIGIT")
+cyt_genelist = c("GZMA", "GZMH", "GZMB", "PRF1", "NKG7")
+aps_genelist
+#code from chatgpt
+# Reactome Antigen Presentation geneset
+reactome_antigen_presentation_geneset <- c(
+    "HSPA5","PIK3C3","SEC23A","TAPBP","SEC24A","BECN1","ATG14","CANX","HLA-F",
+    "SEC31A","SEC24B","SEC24D","SAR1B","SEC13","ERAP1","ERAP2","B2M","PDIA3",
+     "TAP1","SEC24C","CALR","BCAP31","PIK3R4","TAP2","HLA-C","HLA-E","HLA-G",
+     "HLA-F","TAPBP","TAP2","TAPBP","TAP1","TAP2","HLA-E","HLA-A","HLA-G",
+     "HLA-F","TAP2","TAP1","HLA-E","TAP2","TAP1","TAP1","TAP2","HLA-E","HLA-F",
+     "HLA-E","HLA-G","TAP1","TAPBP","TAP2","TAP1","HLA-G","HLA-E","HLA-B",
+     "HLA-F","HLA-G","HLA-G","TAPBP","HLA-E","HLA-G","HLA-F","TAP2","B2M",
+     "HLA-G","CANX")
+ 
+# Reactome MHC Class II Antigen Presentation geneset
+ reactome_MHC_class_II_antigen_presentation_geneset <- c(
+     "AP2B1","CD74","AP2S1","CTSA","KIF26A","KIF2A","AP1M1","RAB7A","TUBA3D",
+     "KIFAP3","DYNC1I2","CAPZB","KIF22","DNM2","KIF3C","DYNLL1","LAG3","KIF4A",
+     "AP1B1","LGMN","SEC23A","TUBB1","KIF3B","CTSH","DCTN6","TUBB4A","KLC3",
+     "AP1S1","DNM1","SH3GL2","CTSC","KIF20A","SEC24A","ACTR1B","CAPZA1","CTSD",
+     "KIF18A","CLTA","TUBA1B","KLC1","CANX","TUBA4A","AP1M2","KIF3A","ACTR10",
+     "DCTN4","CTSL","DYNC1LI2","CTSV","DCTN3","KLC4","TUBB2A","TUBB2B","KIF23",
+     "ACTR1A","KIF11","SEC31A","CENPE","SEC24B","KIF2B","CLTC","OSBPL1A","KIF2C",
+     "CTSK","ARF1","DYNC1LI1","SEC24D","AP1S3","TUBA3E","SAR1B","KIF5A","SEC13",
+     "DYNC1I1","AP2M1","RACGAP1","CTSS","KIF15","CTSB","AP1G1","DCTN5","TUBA1A",
+     "TUBA1C","RILP","HLA-DPA1","KIF5B","TUBB8B","SPTBN2","CTSF","KLC2","DCTN2",
+     "TUBB6","SEC24C","CAPZA3","TUBAL3","AP1S2","AP2A2","TUBA8","TUBB4B",
+     "HLA-DRB3","HLA-DRB1","CTSE","HLA-DQB2","HLA-DQA1","AP2A1","DYNC1H1","DNM3",
+     "TUBA3C","HLA-DRB5","CAPZA2","HLA-DOA","HLA-DMA","HLA-DRA","DCTN1",
+     "HLA-DPA1","HLA-DOA","HLA-DQA2","HLA-DQA1","HLA-DRA","HLA-DPB1","IFI30",
+     "HLA-DQA2","HLA-DPB1","HLA-DPA1","HLA-DQB2","HLA-DQA2","HLA-DQB1","HLA-DQB2",
+     "HLA-DRA","HLA-DMB","KIF4B","HLA-DPB1","HLA-DRB4","HLA-DRA","HLA-DPA1",
+     "HLA-DQB2","HLA-DQB2","HLA-DRA","HLA-DQB2","HLA-DPA1","HLA-DOA","HLA-DQB2",
+     "HLA-DRA","HLA-DPB1","HLA-DRB4","HLA-DQB1","HLA-DPA1","HLA-DQA2","HLA-DOA",
+     "HLA-DRB3","HLA-DQA2","HLA-DQA1","HLA-DQB2","HLA-DOA","HLA-DOA","HLA-DQA2",
+     "HLA-DQB1","HLA-DMB","HLA-DRA","HLA-DOA","HLA-DPA1","HLA-DPA1","HLA-DPB1",
+     "HLA-DQA2","HLA-DPB1","HLA-DMB","HLA-DOB","HLA-DMA","HLA-DOB","HLA-DMB",
+     "HLA-DOB","HLA-DMB","HLA-DOB","HLA-DMB","HLA-DMA","HLA-DMB","HLA-DMB",
+     "HLA-DMA","HLA-DMA","HLA-DMA","HLA-DOB","HLA-DOB","HLA-DMA","TUBA4B","CTSO",
+     "HLA-DQA2","TUBB3","TUBB8","CTSO","DYNLL2","RILP","HLA-DRA","KIF15","CANX",
+     "CTSB","ACTR1B","DYNC1I2")
+ 
+ # Combine the two lists, remove duplicates, and save as one object
+ apc_geneset <- unique(c(
+     reactome_antigen_presentation_geneset,
+     reactome_MHC_class_II_antigen_presentation_geneset))
+
+
+
+comparisons2 = list(c("Baseline", "Week4"), c("Baseline", "Week12.or.16"), c("Week4", "Week12.or.16"))
+p + stat_compare_means(comparisons = my_comparisons, label.y = 30) + # Add pairwise p-values
+    stat_compare_means(method = "anova", label.y = 40) # Add global anova p-value
+
+levels(psmdl55$time.treatment) = c("Baseline_combo", "Baseline_nivo", "Baseline_rela", "Week4_combo", "Week4_nivo", "Week4_rela", "Week12.or.16_combo", "Week12.to.16_nivo", "Week12.or.16")
+
+
+```
+```{r}
+names(bulk.combo1.de) <- paste0(names(bulk.combo1.de), ".bulk")
+bulk.combo1.de$gene <- rownames(bulk.combo1.de)
+names(combo1.de) <- paste0(names(combo1.de), ".sc")
+combo1.de$gene <- rownames(combo1.de)
+
+merge_dat_c1 <- merge(combo1.de, bulk.combo1.de, by = "gene")
+merge_dat_c1 <- merge_dat[order(merge_dat_c1$p_val.bulk), ]
+```
+```{r}
+ifng_genelist = c("CCL5", "CD27", "CD274","CD276", "CD8A", "CMKLR1", "CXCL9", "CYCR6", "HLA-DQA1", "HLA-DRB1", "HLA-E", "IDO1", "LAG3", "NKG7", "PDCD1LG2", "PSMB10", "STAT1", "TIGIT")
+
+ps_seu5 = AddModuleScore(
+    object = ps_seu5,
+    features = list(ifng_genelist),
+    name = "IFNg.score")
+
+FeaturePlot(ps_seu5, features = "IFNg.score1")
+```
+```{r}
+# Reshape the data to long format, selecting specific columns
+psmd = as.data.frame(ps_seu5@meta.data)
+psmd_long3 <- psmd %>%
+  pivot_longer(
+    cols = c("IFNg.score1"), # Specify the columns you want to plot
+    names_to = "time.treatment",
+    values_to = "IFNg.score1"
+  )
+
+psmdl55 <- ps55_md %>%
+pivot_longer(
+cols = c("IFNg.score1"),
+names_to = "Sample.Type",
+values_to = "IFNg.score")
+
+psmdl5s2 <- ps5s2meta2 %>%
+pivot_longer(
+cols = c("IFNg.score1", "CYT.score1", "APS.score1"),
+names_to = "Sample.Type",
+values_to = "Scores")
+
+ggplot(psmd_long, aes(x = Variable, y = Value)) +
+  geom_boxplot() +
+  labs(title = "Box plots of IFNg score by Treatment and Timepoint",
+       y = "IFNg.score",
+       x = "Time.Treatment") # Customize labels
+
+psmdl4 <-psmd %>%
+  pivot_longer(
+    cols = c("IFNg.score1"),
+    names_to = "Sample.Type",
+    values_to = "IFNg.score",
+    values_transform = list(IFNg.score1= as.numeric) # Transform 'score' to numeric
+  )
+obj_filtered <- subset(obj, subset = !is.na(meta.data$NA.1))
+```
+```{r}
+p1 = ggplot(psmdl55, aes(x = time.treatment, y = IFNg.score, color=treatment)) +
+geom_boxplot() +
+labs(title = "Comparison of IFNg score by Timepoint",
+y = "IFNg.score",
+x = "Treatment") +facet_wrap(~forcats::fct_relevel(time2, "Baseline", "Week4", "Week12.or.16"), scales="free", labeller=as_labeller(timelabs)) +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+p1 = ggplot(psmdl55, aes(x = time.treatment, y = IFNg.score, color=treatment)) +
+geom_boxplot() +
+labs(title = "Comparison of IFNg score by Timepoint",
+y = "IFNg.score",
+x = "Treatment") +facet_wrap(~forcats::fct_relevel(time2, "Baseline", "Week4", "Week12.or.16"), scales="free", labeller=as_labeller(timelabs)) +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+```
+```{r}
+p3 = ggplot(psmdl55, aes(x = time.treatment, y = IFNg.score, color=treatment)) +
+geom_boxplot() +
+labs(title = "Comparison of IFNg score by Treatment",
+y = "IFNg.score",
+x = "Treatment")+scale_x_reordered() +facet_wrap(~treatment, scales="free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+```
+```{r}
+#THE ACTUAL ONE THAT REALLY REALLY WORKED!!!!!
+p6 = ggplot(psmdl55, aes(x = time.treatment, y = IFNg.score, color=treatment)) +
+geom_boxplot() +
+labs(title = "Comparison of IFNg score by Timepoint",
+y = "IFNg.score",
+x = "Treatment") +facet_wrap(~forcats::fct_relevel(time2, "Baseline", "Week4", "Week12.or.16"), scales="free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+p6+stat_pvalue_manual(anno_df_t2, label='p.format', tip.length = 0.01,y.position=c(1.0,1.1,1.2), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+p6+stat_pvalue_manual(anno_df_t2, label='p.signif', tip.length = 0.01,y.position=c(1.0,1.1,1.2), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+
+p3 = ggplot(psmdl55, aes(x = time.treatment, y = IFNg.score, color=treatment)) +
+geom_boxplot() +
+labs(title = "Comparison of IFNg score by Treatment",
+y = "IFNg.score",
+x = "Treatment")+scale_x_reordered() +facet_wrap(~treatment, scales="free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+p3+stat_pvalue_manual(anno_df_t6, label='p.signif', tip.length = 0.01,y.position=c(1.0,1.1,1.2), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+p3+stat_pvalue_manual(anno_df_t6, label='p.format', tip.length = 0.01,y.position=c(1.0,1.1,1.2), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+
+anno_df_a6 <- compare_means(IFNg.score ~ time.treatment, group.by = 'treatment',method = 'anova', data = psmdl55, p.adjust.method = "holm") %>% mutate(y.position = 1, p.adj = format.pval(p.adj, digits = 2))
+anno_df_a2 <- compare_means(IFNg.score ~ treatment, group.by = 'time2',method = 'anova', data = psmdl55, p.adjust.method = "holm") %>%
+
+anno_df_t6 <- compare_means(IFNg.score ~ time.treatment, group.by = 'treatment',method = 't.test', data = psmdl55, p.adjust.method = "holm") %>% mutate(y.position = 1, p.adj = format.pval(p.adj, digits = 2))
+anno_df_t2 <- compare_means(IFNg.score ~ time.treatment, group.by = 'time2',method = 't.test', data = psmdl55, p.adjust.method = "holm") %>%mutate(y.position = 1, p.adj = format.pval(p.adj, digits = 2))
+
+# change colors to these hexcodes: ColorHexRGB - 
+# Cyan/Teal #5DCACC (93, 202, 204)
+# Magenta #DB2EE6 (219, 46, 230)
+# Grey #737172 (115, 113, 114)
+```
+```{r}
+pso3l$time.treatment = as.factor(pso3l$time.treatment)
+levels(pso3l$time.treatment) = c("Baseline_Combo", "Baseline_Nivo", "Baseline_Rela", "Week4_Combo", "Week4_Nivo", "Week4_Rela", "Week12.or.16_Combo", "Week12.to.16_Nivo", "Week12.or.16_Rela")
+pso3l$time2 = as.factor(pso3l$time2)
+levels(pso3l$time2) = c("Baseline", "Week4", "Week12.or.16")
+pso3l$Lead_in = as.factor(pso3l$Lead_in)
+levels(pso3l$Lead_in) = c("Combo", "Nivo", "Rela")
+
+
+p6 = ggplot(psmdl55, aes(x = time.treatment, y = IFNg.score, color=treatment)) +
+geom_boxplot() +
+labs(title = "Comparison of IFNg score by Timepoint",
+y = "IFNg.score",
+x = "Treatment") +facet_wrap(~forcats::fct_relevel(time2, "Baseline", "Week4", "Week12.or.16"), scales="free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+ptime_ifng3 = ggplot(pso3l3, aes(x = time.treatment, y = IFNg.scores, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of IFNg Scores by Timepoint",
+y = "IFNg.score",
+x = "Treatment") +facet_wrap(~time3), scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))
+
+pfs_byoutcome_wstats4
+```
+```{r}
+existing_genes_cyt = cyt_genelist
+logCPM_scaled_cyt <- t(scale(t(logCPM[existing_genes_cyt, ])))
+sig_score_cyt <- colMeans(logCPM_scaled_cyt)
+sgscore_cyt = as.data.frame(sig_score_cyt)
+sgscore_cyt$cell_counts = rownames(sgscore_cyt)
+colnames(sgscore_cyt) = c("CYT.score3", "cell_counts")
+psomd_cyt = as.data.frame(pseudo2@meta.data)
+psomd2_cyt = merge(psomd_cyt, sgscore_cyt, by="cell_counts", all.x=TRUE)
+rownames(psomd2_cyt) = psomd2_cyt$cell_counts
+write.csv(psomd2_cyt, file="ps6sm6-with-ifng-cyt-scores.csv")
+psb6sm7 = merge(psb6sm6, sgscore_cyt, by="cell_counts", all.x=TRUE)
+rownames(psb6sm7) = psb6sm7$cell_counts
+
+psomd_aps = as.data.frame(pseudo2@meta.data)
+logCPM_scaled_aps <- t(scale(t(logCPM[existing_genes_aps, ])))
+aps_genelist_small = reactome_antigen_presentation_geneset
+#change existing-genes-aps to just include the first part ^
+existing_genes_aps = aps_genelist_small
+logCPM_scaled_aps <- t(scale(t(logCPM[existing_genes_aps, ])))
+sig_score_aps <- colMeans(logCPM_scaled_aps)
+sgscore_aps = as.data.frame(sig_score_aps)
+sgscore_aps$cell_counts = rownames(sgscore_aps)
+colnames(sgscore_aps) = c("APS.score3", "cell_counts")
+psomd3_aps = merge(psomd2_cyt, sgscore_aps, by="cell_counts", all.x=TRUE)
+rownames(psomd3_aps) = psomd3_aps$cell_counts
+psomd3_aps2 = psomd3_aps[,c(1,6)]
+psb6sm8 = merge(psb6sm7, psomd3_aps2, by="cell_counts", all.x=TRUE)
+psb6sm8 <- pso3md5 %>%
+pivot_longer(
+cols = c("CYT.score2"),
+names_to = "Score.type",
+values_to = "CYT.scores")
+pso3md5l_cyt = pso3md5l
+pso3md5l_aps <- pso3md5 %>%
+pivot_longer(
+cols = c("APS.score2"),
+names_to = "Score.type",
+values_to = "APS.scores")
+pso3md5l_ifng <- pso3md5 %>%
+pivot_longer(
+cols = c("IFNg.score2"),
+names_to = "Score.type",
+values_to = "IFNg.scores")
+write.csv(pso3md5l_ifng, file="pso3md5l-ifng-scores-longer.csv")
+write.csv(pso3md5l_cyt, file="pso3md5l-cyt-scores-longer.csv")
+write.csv(pso3md5l_aps, file="pso3md5l-aps-scores-longer.csv")
+```
+```{r}
+RNA_snn_res.0.25 = c(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20)
+Man_0.25_celltypes_rev = c("Naive.CD4+.T.cells", "NK.cells", "Classical.Monocytes.MDSCs", "Tem", "Proliferating.cells", "TILs", "Tex", "Mature-Naive.B.cells", "TAMs.1", "cDCs.Type1", "Dendritic.cells", "Trm", "Plasma.cells", "Neutrophils.1", "Cancer.Associated.Fibroblasts", "B.cells.1", "TAMs.2", "Neutrophils.2", "B.cells.2", "Erythroid.cells")
+Man_0.25_revised = as.data.frame(cbind(RNA_snn_res.0.25, Man_0.25_celltypes_rev))
+
+clusters_Tcells = c(1,2,3,4,5,6,7,9,10,11,12,14,17,18)
+seu5s3t <- subset(seu5s3, subset = RNA_snn_res.0.25 %in% clusters_Tcells)
+```
+```{r}
+seu5s3[["RNA"]] = split(seu5s3[["RNA"]], f=seu5s3@meta.data$Patient.Number)
+seu5s3 <- IntegrateLayers(
+object = seu5s3, method = CCAIntegration,
+orig.reduction = "pca", new.reduction = "integrated.cca",
+verbose = FALSE)
+#rejoin layers
+seu5s3[["RNA"]] = JoinLayers(seu5s3[["RNA"]])
+#save RDS
+saveRDS(seu5s3, file="seu5s3-post-re-integration2.rds")
+#for tcell only subset
+seu5s3t[["RNA"]] = split(seu5s3t[["RNA"]], f=seu5s3t@meta.data$Patient.Number)
+seu5s3t <- IntegrateLayers(
+object = seu5s3t, method = CCAIntegration,
+orig.reduction = "pca", new.reduction = "integrated.cca",
+verbose = FALSE)
+#rejoin layers
+seu5s3t[["RNA"]] = JoinLayers(seu5s3t[["RNA"]])
+#save RDS
+saveRDS(seu5s3t, file="seu5s3t-tcells-only-post-re-integration2.rds")
+
+#save image/RData
+save.image("/ix/rbao/Projects/HCC-CBS-253-Hillman-LKarapetyan-scRNAseq-revise/results/jwork/022626-3-seu5s3-re-integration.RData")
+
+
+```
+```{r}
+#post2nd-integration-normalization/clustering/umaps
+seu5s3 <- NormalizeData(seu5s3)
+seu5s3 <- FindVariableFeatures(seu5s3)
+seu5s3 <- ScaleData(seu5s3)
+seu5s3 <- RunPCA(seu5s3)
+seu5s3 <- FindNeighbors(seu5s3, dims = 1:10)
+seu5s3 <- FindClusters(seu5s3, resolution = 0.25, random.seed = 1, algorithm = 4)
+seu5s3 <- RunUMAP(seu5s3, dims = 1:10)
+seu5s3 <- FindClusters(seu5s3, resolution = 0.5, random.seed = 1, algorithm = 4)
+seu5s3 <- RunUMAP(seu5s3, dims = 1:10)
+seu5s3 <- FindClusters(seu5s3, resolution = 0.1, random.seed = 1, algorithm = 4)
+seu5s3 <- RunUMAP(seu5s3, dims = 1:10)
+seu5s3 <- FindClusters(seu5s3, resolution = 1, random.seed = 1, algorithm = 4)
+seu5s3 <- RunUMAP(seu5s3, dims = 1:10)
+Idents(seu5s3) = "RNA_snn_res.0.25"
+DimPlot(seu5s3, reduction = 'pca')
+DimPlot(seu5s3, reduction = 'umap', group.by = c("RNA_snn_res.1", "RNA_snn_res.0.5", "RNA_snn_res.0.25","RNA_snn_res.0.1"), label=TRUE, repel=TRUE)+NoLegend()
+
+
+dd14a@meta.data$full_sample2 <- ifelse(dd14a@meta.data$full_sample2 == "h018-1-post:cd45p_tumor", "UOP-018-1-post:cd45p_tumor", dd14a@meta.data$full_sample2)
+
+```
+```{r}
+seu6s <- NormalizeData(seu6s)
+seu6s <- FindVariableFeatures(seu6s)
+seu6s <- ScaleData(seu6s)
+seu6s <- RunPCA(seu6s)
+seu6s <- FindNeighbors(seu6s, dims = 1:10)
+seu6s <- FindClusters(seu6s, resolution = 0.25, random.seed = 1, algorithm = 4)
+seu6s <- RunUMAP(seu6s, dims = 1:10)
+seu6s <- FindClusters(seu6s, resolution = 0.5, random.seed = 1, algorithm = 4)
+seu6s <- RunUMAP(seu6s, dims = 1:10)
+seu6s <- FindClusters(seu6s, resolution = 0.1, random.seed = 1, algorithm = 4)
+seu6s <- RunUMAP(seu6s, dims = 1:10)
+seu6s <- FindClusters(seu6s, resolution = 1, random.seed = 1, algorithm = 4)
+seu6s <- RunUMAP(seu6s, dims = 1:10)
+Idents(seu6s) = "RNA_snn_res.0.25"
+
+```
+```{r}
+ptime_ifng4 = ggplot(pso3md5l_aps, aes(x = time.treatment, y = IFNg.scores, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of IFNg Scores by Treatment",
+y = "IFNg.score",
+x = "Treatment") +facet_wrap(~time3, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))
+
+ptreat_ifng4 = ggplot(pso3l4, aes(x = time.treatment, y = IFNg.scores, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of IFNg Scores by Treatment",
+y = "IFNg.score",
+x = "Treatment") +facet_wrap(~Lead_in, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))
+
+ptreat_ifng4 = ggplot(pso3md5l_aps, aes(x = time.treatment, y = IFNg.score2, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of IFNg Scores by Treatment",
+y = "IFNg.score",
+x = "Treatment") +facet_wrap(~Lead_in, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))
+
+anno_pfs_ifng3 = compare_means(IFNg.score2 ~ time.treatment, group.by = 'time3',method = 'anova', data = pso3md5l_aps, p.adjust.method = "holm") %>% mutate(y.position = 1, p.adj = format.pval(p.adj, digits = 2))
+
+anno_pfs_ifng3$group1 = c("Baseline_Combo", "Week04_Combo", "Week12.or.16_Combo")
+anno_pfs_ifng3$group2 = c("Baseline_Rela", "Week04_Rela", "Week12.or.16_Rela")
+
+anno_pfs_ifng4 = compare_means(IFNg.score2 ~ time.treatment, group.by = 'Lead_in',method = 'anova', data = pso3md5l_aps, p.adjust.method = "holm") %>% mutate(y.position = 1, p.adj = format.pval(p.adj, digits = 2))
+
+anno_pfs_ifng4$group1 = c("Baseline_Combo", "Baseline_Nivo", "Baseline_Rela")
+anno_pfs_ifng4$group2 = c("Week12.or.16_Combo", "Week12.or.16_Nivo", "Week12.or.16_Rela")
+
+colnames(pso3md5l_aps)
+
+ptime_ifng4_wstats = ptime_ifng4+stat_pvalue_manual(anno_pfs_ifng3, label='p.format', tip.length = 0.01,y.position=c(1.5,1.5,1.5), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+
+ptime_cyt_wstats4 = ptime_cyt_new+stat_pvalue_manual(anno_pfs_cyt3, label='p.format', tip.length = 0.01,y.position=c(1.0,1.1,1.2), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+
+ptime_cyt_wstats3 = ptime_cyt_new+stat_pvalue_manual(anno_pfs_cyt3, label='p.format', tip.length = 0.01,y.position=c(2,2,2), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+ptime_aps_wstats3 = ptime_aps_new+stat_pvalue_manual(anno_pfs_aps3, label='p.format', tip.length = 0.01,y.position=c(1.3,1.3,1.3), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+
+
+```
+```{r}
+seu5pmd$Patient.Number <- stringr::str_replace_all(seu5pmd$patient_id,'UoP','UOP-')
+seu5pmd$time3 = seu5pmd$timepoint
+seu5pmd$time3 <- stringr::str_replace_all(seu5pmd$time3,'Week4','Week04')
+seu5pmd$time3 <- stringr::str_replace_all(seu5pmd$time3,'Week12','Week12.or.16')
+seu5pmd$time3 <- stringr::str_replace_all(seu5pmd$time3,'Week16','Week12.or.16')
+```
+```{r}
+seu5p[["RNA"]] <- split(seu5p[["RNA"]], f = seu5p$Patient.Number)
+#integrate layers
+seu5p <- IntegrateLayers(
+object = seu5p, method = CCAIntegration,
+orig.reduction = "pca", new.reduction = "integrated.cca",
+verbose = FALSE)
+#rejoin layers
+seu5p[["RNA"]] = JoinLayers(seu5p[["RNA"]])
+#save RDS
+qsave(seu5p, file="seu5p-pbmc-only-integration.qs", preset = 'fast')
+
+```
+```{r}
+seu5pmg4 <- seu5pmg4 %>%
+     mutate(
+         time3 = case_when(
+             time3 %in% c("Week12", "Week16") ~ "Week12.or.16",
+             TRUE ~ time3 # Keep existing value if conditions aren't met
+         )
+     )
+unique(seu5pmg4$time3)
+#[1] "Baseline"     "Week12.or.16" "Week4"       
+seu5pmg4$time3 = stringr::str_replace_all(seu5pmg4$time3,'Week4','Week04')
+```
+```{r}
+tsl$time.treatment = as.factor(tsl$time.treatment)
+levels(tsl$time.treatment) = c("Baseline_Rela", "Baseline_Nivo", "Baseline_Combo", "Week04_Rela", "Week04_Nivo", "Week04_Combo", "Week12.or.16_Rela", "Week12.or.16_Nivo", "Week12.or.16_Combo")
+
+#TIL SUBSET
+ptreat_aps5 = ggplot(tsl, aes(x = time.treatment, y = APS.score, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of APS Scores by Treatment (TIL)",
+y = "APS.score",
+x = "Treatment") +facet_wrap(~Lead_in, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))
+
+anno_pfs_aps4 = compare_means(APS.score ~ time.treatment, group.by = 'Lead_in',method = 'anova', data = tsl, p.adjust.method = "holm") %>% mutate(y.position = 1, p.adj = format.pval(p.adj, digits = 2))
+anno_pfs_aps4$group1 = c("Baseline_Rela", "Baseline_Nivo", "Baseline_Combo")
+anno_pfs_aps4$group2 = c("Week12.or.16_Rela", "Week12.or.16_Nivo", "Week12.or.16_Combo")
+
+ptreat_aps5_wstats = ptreat_aps5+stat_pvalue_manual(anno_pfs_aps4, label='p.format', tip.length = 0.01,y.position=c(1.3,1.3,1.3), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+
+ptreat_cyt5 = ggplot(tsl, aes(x = time.treatment, y = CYT.score, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of CYT Scores by Treatment (TIL)",
+y = "CYT.score",
+x = "Treatment") +facet_wrap(~Lead_in, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))
+
+anno_pfs_cyt4 = compare_means(CYT.score ~ time.treatment, group.by = 'Lead_in',method = 'anova', data = tsl, p.adjust.method = "holm") %>% mutate(y.position = 1, p.adj = format.pval(p.adj, digits = 2))
+anno_pfs_cyt4$group1 = c("Baseline_Rela", "Baseline_Nivo", "Baseline_Combo")
+anno_pfs_cyt4$group2 = c("Week12.or.16_Rela", "Week12.or.16_Nivo", "Week12.or.16_Combo")
+
+ptreat_cyt5_wstats = ptreat_cyt5+stat_pvalue_manual(anno_pfs_cyt4, label='p.format', tip.length = 0.01,y.position=c(2,2,2), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+
+anno_pfs_ifng3 = compare_means(IFNg.score ~ time.treatment, group.by = 'time3',method = 'anova', data = tsl, p.adjust.method = "holm") %>% mutate(y.position = 1, p.adj = format.pval(p.adj, digits = 2))
+anno_pfs_ifng3
+anno_pfs_ifng3$group1 = c("Baseline_Rela", "Week04_Rela", "Week12.or.16_Rela")
+anno_pfs_ifng3$group2 = c("Baseline_Combo", "Week04_Combo", "Week12.or.16_Combo")
+
+ptreat_ifng5 = ggplot(tsl, aes(x = time.treatment, y = IFNg.score, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of IFNg Scores by Treatment",
+y = "IFNg.score",
+x = "Treatment") +facet_wrap(~Lead_in, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))
+
+anno_pfs_ifng4 = compare_means(IFNg.score ~ time.treatment, group.by = 'Lead_in',method = 'anova', data = tsl, p.adjust.method = "holm") %>% mutate(y.position = 1, p.adj = format.pval(p.adj, digits = 2))
+anno_pfs_ifng4$group1 = c("Baseline_Rela", "Baseline_Nivo", "Baseline_Combo")
+anno_pfs_ifng4$group2 = c("Week12.or.16_Rela", "Week12.or.16_Nivo", "Week12.or.16_Combo")
+
+ptreat_ifng5_wstats = ptreat_ifng5+stat_pvalue_manual(anno_pfs_ifng4, label='p.format', tip.length = 0.01,y.position=c(1.3,1.3,1.3), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+
+
+ptime_ifng5_wstats = ptime_ifng5+stat_pvalue_manual(anno_pfs_ifng3, label='p.format', tip.length = 0.01,y.position=c(1.5,1.5,1.5), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+
+ptime_ifng5 = ggplot(tsl, aes(x = time.treatment, y = IFNg.score, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of IFNg Scores by Timepoint (TIL)",
+y = "IFNg.score",
+x = "Timepoint") +facet_wrap(~time3, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))
+
+anno_pfs_ifng3 = compare_means(IFNg.score ~ time.treatment, group.by = 'time3',method = 'anova', data = tsl, p.adjust.method = "holm") %>% mutate(y.position = 1, p.adj = format.pval(p.adj, digits = 2))
+anno_pfs_ifng3
+anno_pfs_ifng3$group1 = c("Baseline_Combo", "Week04_Combo", "Week12.or.16_Combo")
+anno_pfs_ifng3$group2 = c("Baseline_Rela", "Week04_Rela", "Week12.or.16_Rela")
+
+ptime_ifng5_wstats = ptime_ifng5+stat_pvalue_manual(anno_pfs_ifng3, label='p.format', tip.length = 0.01,y.position=c(1.5,1.5,1.5), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+
+ptime_cyt5 = ggplot(tsl, aes(x = time.treatment, y = CYT.score, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of CYT Scores by Timepoint (TIL)",
+y = "CYT.score",
+x = "Timepoint") +facet_wrap(~time3, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))
+
+anno_pfs_cyt3 = compare_means(CYT.score ~ time.treatment, group.by = 'time3',method = 'anova', data = tsl, p.adjust.method = "holm") %>% mutate(y.position = 1, p.adj = format.pval(p.adj, digits = 2))
+anno_pfs_cyt3$group1 = c("Baseline_Rela", "Week04_Rela", "Week12.or.16_Rela")
+anno_pfs_cyt3$group2 = c("Baseline_Combo", "Week04_Combo", "Week12.or.16_Combo")
+
+ptime_cyt5_wstats = ptime_cyt5+stat_pvalue_manual(anno_pfs_cyt3, label='p.format', tip.length = 0.01,y.position=c(2,2,2), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+
+ptime_aps5 = ggplot(tsl, aes(x = time.treatment, y = APS.score, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of APS Scores by Timepoint",
+y = "APS.score",
+x = "Timepoint") +facet_wrap(~time3, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))
+
+ptime_aps5 = ggplot(tsl, aes(x = time.treatment, y = APS.score, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of APS Scores by Timepoint (TIL)",
+y = "APS.score",
+x = "Timepoint") +facet_wrap(~time3, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))
+
+anno_pfs_aps3 = compare_means(APS.score ~ time.treatment, group.by = 'time3',method = 'anova', data = tsl, p.adjust.method = "holm") %>% mutate(y.position = 1, p.adj = format.pval(p.adj, digits = 2))
+anno_pfs_aps3$group1 = c("Baseline_Rela", "Week04_Rela", "Week12.or.16_Rela")
+anno_pfs_aps3$group2 = c("Baseline_Combo", "Week04_Combo", "Week12.or.16_Combo")
+
+ptime_aps5_wstats = ptime_aps5+stat_pvalue_manual(anno_pfs_aps3, label='p.format', tip.length = 0.01,y.position=c(1.3,1.3,1.3), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+#PBMC SUBSET
+stat_compare_means(method = "anova", label.y = 1.8)
+my_comparisons <- list(c("PD/Dead before 6 month", "PFS-free at 6 month"), c("PD/Dead before 6 month", "PFS-free at 6 month"), c("PD/Dead before 6 month", "PFS-free at 6 month"))
+
+#PFS by time
+ppfs_ifng6_wstats = ggplot(psl, aes(x = PFS.6month.status, y = IFNg.score, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of IFNg Scores by Time and PFS Outcome",
+y = "IFNg.score",
+x = "PFS.outcome") +facet_wrap(~time3, scales = "free_x", ncol=4) +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))+stat_compare_means(paired=FALSE,method='anova',aes(label = paste0(" ", after_stat(p.format))),size=3, label.y = 1.8)
+
+ppfs_cyt6_wstats = ggplot(psl, aes(x = PFS.6month.status, y = CYT.score, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of CYT Scores by Time and PFS Outcome",
+y = "CYT.score",
+x = "PFS.outcome") +facet_wrap(~time3, scales = "free_x", ncol=4) +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))+stat_compare_means(paired=FALSE,method='anova',aes(label = paste0(" ", after_stat(p.format))),size=3, label.y = 2)
+
+ppfs_aps6_wstats = ggplot(psl, aes(x = PFS.6month.status, y = APS.score, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of APS Scores by Time and PFS Outcome",
+y = "APS.score",
+x = "PFS.outcome") +facet_wrap(~time3, scales = "free_x", ncol=4) +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))+stat_compare_means(paired=FALSE,method='anova',aes(label = paste0(" ", after_stat(p.format))),size=3, label.y = 1.5)
+ppfs_aps6_wstats
+#DOES NOT WORK #+stat_compare_means(paired=FALSE,method='wilcox.test',aes(label = paste0(" ", after_stat(p.format))),size=3, label.y = 1.8)
+ppfs_ifng7_wstats = ggplot(psl, aes(x = PFS.6month.status, y = IFNg.score, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of IFNg Scores by Lead in and PFS Outcome",
+y = "IFNg.score",
+x = "PFS.outcome") +facet_wrap(~Lead_in, scales = "free_x", ncol=4) +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))
+
+anno_pfs2_ifng7 = compare_means(IFNg.score ~ PFS.6month.status, group.by = 'Lead_in',method = 'wilcox', data = psl, p.adjust.method = "holm") %>% mutate(y.position = 1, p.adj = format.pval(p.adj, digits = 2))
+anno_pfs2_infg7$group1 = c("PD/Dead before 6 month", "PD/Dead before 6 month", "PD/Dead before 6 month")
+anno_pfs2_ifng7$group2 = c("PFS-free at 6 month", "PFS-free at 6 month", "PFS-free at 6 month")
+
+ppfs_ifng7_wstats2 = ppfs_ifng7+stat_pvalue_manual(anno_pfs2_ifng7, label='p.format', tip.length = 0.01,y.position=c(1.3,1.3,1.3), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+
+ppfs_aps7 = ggplot(psl, aes(x = PFS.6month.status, y = APS.score, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of APS Scores by Lead in and PFS Outcome",
+y = "APS.score",
+x = "PFS.outcome") +facet_wrap(~Lead_in, scales = "free_x", ncol=4) +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))
+
+anno_pfs2_aps7 = compare_means(APS.score ~ PFS.6month.status, group.by = 'Lead_in',method = 'wilcox', data = psl, p.adjust.method = "holm") %>% mutate(y.position = 1, p.adj = format.pval(p.adj, digits = 2))
+anno_pfs2_aps7$group1 = c("PD/Dead before 6 month", "PD/Dead before 6 month", "PD/Dead before 6 month")
+anno_pfs2_aps7$group2 = c("PFS-free at 6 month", "PFS-free at 6 month", "PFS-free at 6 month")
+
+ppfs_aps7_wstats2 = ppfs_aps7+stat_pvalue_manual(anno_pfs2_aps7, label='p.format', tip.length = 0.01,y.position=c(2,2,2), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+
+ppfs_cyt7 = ggplot(psl, aes(x = PFS.6month.status, y = CYT.score, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of CYT Scores by Lead in and PFS Outcome",
+y = "CYT.score",
+x = "PFS.outcome") +facet_wrap(~Lead_in, scales = "free_x", ncol=4) +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))
+ppfs_cyt7
+anno_pfs2_cyt7 = compare_means(CYT.score ~ PFS.6month.status, group.by = 'Lead_in',method = 'wilcox', data = psl, p.adjust.method = "holm") %>% mutate(y.position = 1, p.adj = format.pval(p.adj, digits = 2))
+anno_pfs2_cyt7$group1 = c("PD/Dead before 6 month", "PD/Dead before 6 month", "PD/Dead before 6 month")
+anno_pfs2_cyt7$group2 = c("PFS-free at 6 month", "PFS-free at 6 month", "PFS-free at 6 month")
+ppfs_cyt7_wstats2 = ppfs_cyt7+stat_pvalue_manual(anno_pfs2_cyt7, label='p.format', tip.length = 0.01,y.position=c(2,2,2), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+
+ppfs_aps7 = ggplot(psl, aes(x = PFS.6month.status, y = APS.score, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of APS Scores by Lead in and PFS Outcome",
+y = "APS.score",
+x = "PFS.outcome") +facet_wrap(~Lead_in, scales = "free_x", ncol=4) +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))
+ppfs_aps7
+anno_pfs2_aps7 = compare_means(APS.score ~ PFS.6month.status, group.by = 'Lead_in',method = 'wilcox', data = psl, p.adjust.method = "holm") %>% mutate(y.position = 1, p.adj = format.pval(p.adj, digits = 2))
+anno_pfs2_aps7$group1 = c("PD/Dead before 6 month", "PD/Dead before 6 month", "PD/Dead before 6 month")
+anno_pfs2_aps7$group2 = c("PFS-free at 6 month", "PFS-free at 6 month", "PFS-free at 6 month")
+ppfs_aps7_wstats2 = ppfs_aps7+stat_pvalue_manual(anno_pfs2_aps7, label='p.format', tip.length = 0.01,y.position=c(2,2,2), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+
+
+ppfs_cyt7_wstats2 = ppfs_cyt7+stat_pvalue_manual(anno_pfs2_cyt7, label='p.format', tip.length = 0.01,y.position=c(2,2,2), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+```
+```{r}
+#all scores baseline only
+anno_all_base = compare_means(Score.Value ~ Lead_in, group.by = 'Score.Type',method = 'anova', data = base_tsll, p.adjust.method = "holm") %>% mutate(y.position = 1, p.adj = format.pval(p.adj, digits = 2))
+anno_all_base
+anno_all_base$group1 = c("Rela", "Rela", "Rela")
+anno_all_base$group2 = c("Combo", "Combo", "Combo")
+all_base_leadin = ggplot(base_tsll, aes(x = Lead_in, y = Score.Value, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of Signatures Scores at Baseline (TIL)",
+y = "Signature.score",
+x = "Lead_in") +facet_wrap(~Score.Type, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))
+
+all_base_psl_leadin = ggplot(base_psll, aes(x = Lead_in, y = Score.Value, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of Signatures Scores at Baseline (PBMC)",
+y = "Signature.score",
+x = "Lead_in") +facet_wrap(~Score.Type, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))
+
+all_base_psl_leadin
+anno_all_base_psl = compare_means(Score.Value ~ Lead_in, group.by = 'Score.Type',method = 'anova', data = base_psll, p.adjust.method = "holm") %>% mutate(y.position = 1, p.adj = format.pval(p.adj, digits = 2))
+anno_all_base_psl
+anno_all_base_psl$group1 = c("Rela", "Rela", "Rela")
+anno_all_base_psl$group2 = c("Combo", "Combo", "Combo")
+all_base_psl_leadin_wstats = all_base_psl_leadin+stat_pvalue_manual(anno_all_base_psl, label='p.format', tip.length = 0.01,y.position=c(1.8,1.8,1.8), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+
+#all scores baseline+week04
+blwk04_allscores_wstats = ggplot(blwk04_tsll, aes(x = Score.Type, y = Score.Value, fill=Lead_in, group_by=time3)) +
+geom_boxplot() +
+labs(title = "Comparison of Signatures Scores at Baseline + Week 4 (TIL)",
+y = "Signature.score",
+x = "Lead_in") +facet_wrap(~Lead_in+Score.Type, scales = "free_x", ncol=9) +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))+stat_compare_means(paired = FALSE, method='wilcox', aes(label = paste0(" ", after_stat(p.format))),size=3, label.y = 1.8)
+
+blwk04_allscores_wstats_psl = ggplot(blwk04_psll, aes(x = Score.Type, y = Score.Value, fill=Lead_in, group_by=time3)) +
+geom_boxplot() +
+labs(title = "Comparison of Signatures Scores at Baseline + Week 4 (PBMC)",
+y = "Signature.score",
+x = "Lead_in") +facet_wrap(~Lead_in+Score.Type, scales = "free_x", ncol=9) +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))+stat_compare_means(paired = FALSE, method='wilcox', aes(label = paste0(" ", after_stat(p.format))),size=3, label.y = 2)
+
+```
+```{r}
+#sets of patients that have both baseline and week04 samples for paired comparisons
+til_pat_pairs = c("UOP-002","UOP-003","UOP-004","UOP-005","UOP-006","UOP-007","UOP-008","UOP-009","UOP-014","UOP-015","UOP-018","UOP-023","UOP-024","UOP-026","UOP-028","UOP-029","UOP-030","UOP-031","UOP-034","UOP-036","UOP-038","UOP-042","UOP-043","UOP-044")
+pbmc_pat_pairs = c("UOP-002","UOP-003","UOP-004","UOP-005","UOP-006","UOP-007","UOP-008","UOP-009","UOP-014","UOP-015","UOP-017","UOP-018","UOP-020","UOP-026","UOP-028","UOP-029","UOP-030","UOP-033","UOP-034","UOP-035","UOP-036","UOP-038","UOP-040","UOP-041","UOP-042")
+
+#CONNECTED POINTS PLOTS! THEY WORKED!
+til_pp_tsll_1 = ggplot(data = til_pp_tsll, mapping = aes(x = time3, y = Score.Value, group = time3, color = Lead_in, split_by= time3, scales="free_x"))+geom_line(aes(group = Patient.Number), colour = "gray80")+geom_point(size=3)+facet_wrap(~Lead_in+Score.Type)+theme_minimal()+scale_color_manual(values = point_colors, name = "Lead-in")+labs(title = "Paired Samples: Signatures Scores by Timepoint (TIL)",y = "Signature.score",x = "Timepoint")
+anno_pair_tsl = compare_means(Score.Value ~ time3, group.by = c('Lead_in', 'Score.Type'),method = 'wilcox', data = til_pp_tsll, p.adjust.method = "holm") %>% mutate(y.position = 1, p.adj = format.pval(p.adj, digits = 2))
+til_pp_tsll_1_wstats = til_pp_tsll_1+stat_pvalue_manual(anno_pair_tsl, label='p.format', tip.length = 0.01,y.position=c(2,2,2), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+
+pbmc_pp_psll_1 = ggplot(data = pbmc_pp_psll, mapping = aes(x = time3, y = Score.Value, group = time3, color = Lead_in, split_by= time3, scales="free_x"))+geom_line(aes(group = Patient.Number), colour = "gray80")+geom_point(size=3)+facet_wrap(~Lead_in+Score.Type)+theme_minimal()+scale_color_manual(values = point_colors, name = "Lead-in")+labs(title = "Paired Samples: Signatures Scores by Timepoint (PBMC)",y = "Signature.score",x = "Timepoint")
+anno_pair_psl = compare_means(Score.Value ~ time3, group.by = c('Lead_in', 'Score.Type'),method = 'wilcox', data = pbmc_pp_psll, p.adjust.method = "holm") %>% mutate(y.position = 1, p.adj = format.pval(p.adj, digits = 2))
+pbmc_pp_psll_1_wstats = pbmc_pp_psll_1+stat_pvalue_manual(anno_pair_psl, label='p.format', tip.length = 0.01,y.position=c(2,2,2), size=3)+scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+```
+```{r}
+t_ex_genelist = c("HAVCR2","KLRC1","SRGAP3","FABP5","ENTPD1","CSF1","PDCD1","TNFSF4","GZMA","MKI67","LGALS3","TOX","TIGIT","FUT8","TNFRSF9","IL2RB","LAG3","NAB1","SLC2A8","CTLA4","ITM2A","GCNT1","PSMB8","PLSCR1","KCNK5","TNIP3","BUB1","PSMA1","TANK","SUB1","ACOT7","NEDD9","HMGB2","SDF2L1","ETFB","EZH2","MCM3","MIS18BP1","RAD21","PSMD9","SLC43A3","PMF1")
+
+existing_genes_tex = t_ex_genelist
+logCPM_scaled_tex <- t(scale(t(logCPM[existing_genes_tex, ])))
+sig_score_tex <- colMeans(logCPM_scaled_tex)
+sgscore_tex = as.data.frame(sig_score_tex)
+sgscore_tex$cell_counts = rownames(sgscore_tex)
+colnames(sgscore_tex) = c("Tex.score", "cell_counts")
+#psl_tex = as.data.frame(psl@meta.data)
+psl_tex2 = merge(pbmc_scores, sgscore_tex, by="cell_counts", all.x=TRUE)
+rownames(psl_tex2) = psl_tex2$cell_counts
+write.csv(psl_tex2, file="pbmc-with-tex-score.csv")
+psl_tex3 = merge(til_scores, sgscore_tex, by="cell_counts", all.x=TRUE)
+rownames(psl_tex3) = psl_tex3$cell_counts
+write.csv(psl_tex3, file="til-with-tex-score.csv")
+
+#psb6sm7 = merge(psb6sm6, sgscore_cyt, by="cell_counts", all.x=TRUE)
+#rownames(psb6sm7) = psb6sm7$cell_counts
+
+tsll_tex2 = tsl_tex %>%
+pivot_longer(
+cols = c("IFNg.score", "CYT.score", "APS.score", "Tex.score"),
+names_to = "Score.Type",
+values_to = "Score.Value")
+
+tsll_tex = tsl_tex %>%
+pivot_longer(
+cols = c("Tex.score"),
+names_to = "Tex.score",
+values_to = "Score.Value")
+
+
+psll_tex4 = psl_tex2 %>%
+pivot_longer(
+cols = c("IFNg.score", "CYT.score", "APS.score", "Tex.score"),
+names_to = "Score.Type",
+values_to = "Score.Value")
+
+psll_tex2 = psl_tex2 %>%
+pivot_longer(
+cols = c("Tex.score"),
+names_to = "Tex.score",
+values_to = "Score.Value")
+
+write.csv(psll_tex2, file="psl-tex-score-longer.csv")
+write.csv(tsll_tex2, file="tsl-tex-score-longer.csv")
+write.csv(psl_tex2, file="psl-tex-not-long.csv")
+write.csv(tsl_tex, file="tsl-tex-not-long.csv")
+ptreat_tex = ggplot(psl_tex2, aes(x = time.treatment, y = Tex.score, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Comparison of Tex (Exhausted T cell) Scores by Lead-in",
+y = "Tex.score",
+x = "Lead-in") +facet_wrap(~Lead_in, scales = "free_x") +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))
+
+base_psll2_leadin_scm = ggplot(base_psll2, aes(x = Lead_in, y = Score.Value, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Baseline-only: All Scores by Lead-in (PBMC)",
+y = "Signature.score",
+x = "Lead-in") +facet_wrap(~Score.Type, scales = "free_x", ncol = 4) +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))+stat_compare_means(paired = FALSE, method='anova', aes(label = paste0(" ", after_stat(p.format))),size=3, label.y = 1.8, label.x = 1.7)
+
+base_psll2_leadin = ggplot(base_psll2, aes(x = Lead_in, y = Score.Value, fill=Lead_in)) +
+geom_boxplot() +
+labs(title = "Baseline-only: All Scores by Lead-in (PBMC)",
+y = "Signature.score",
+x = "Lead-in") +facet_wrap(~Score.Type, scales = "free_x", ncol = 4) +theme_minimal()+geom_jitter(width = 0.2, alpha = 0.7)+theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+scale_fill_manual(values = c("Combo" = "#DB2EE6", "Nivo" = "#5DCACC", "Rela" = "#737172"))
+
+
+
+```
+```{r}
+str_replace_all(my_string, "hello", "hi")
+
+stringr::str_replace_all(datmd$general_cell_type, "CD14+_CD16-_CD33mixed_monocytes", "Macrophages")
+stringr::str_replace_all(datmd$general_cell_type, "CD4+ Tconv", "Treg")
+stringr::str_replace_all(datmd$general_cell_type, "Activated Transitional", "CD8+.T.cell")
+stringr::str_replace_all(datmd$general_cell_type, "cDC2", "CD8+.T.cell")
+stringr::str_replace_all(datmd$general_cell_type, "Naive Memory", "Treg")
+stringr::str_replace_all(datmd$general_cell_type, "TREM2+_SPP1+_LAM", "Macrophages")
+stringr::str_replace_all(datmd$general_cell_type, "Tex Intermediate/Effector", "CD8+.T.cell")
+stringr::str_replace_all(datmd$general_cell_type, "Terminally exh/TCR signalling", "CD8+.T.cell")
+stringr::str_replace_all(datmd$general_cell_type, "Gamma delta T cells", "Treg")
+stringr::str_replace_all(datmd$general_cell_type, "ISG_macs", "Macrophages")
+stringr::str_replace_all(datmd$general_cell_type, "Tex Intermediate", "CD8+.T.cell")
+stringr::str_replace_all(datmd$general_cell_type, "CD14-_CD16+_monocytes", "Macrophages")
+stringr::str_replace_all(datmd$general_cell_type, "CD14+_CD16-_CD33-", "Macrophages")
+stringr::str_replace_all(datmd$general_cell_type, "CD4+ Treg", "Treg")
+stringr::str_replace_all(datmd$general_cell_type, "Early Activated/Memory", "CD8+.T.cell")
+stringr::str_replace_all(datmd$general_cell_type, "Activated cycling", "CD8+.T.cell")
+stringr::str_replace_all(datmd$general_cell_type, "Terminally exh/Tex progenitor 1", "CD8+.T.cell")
+stringr::str_replace_all(datmd$general_cell_type, "Tissue resident", "CD8+.T.cell")
+
+my_strings <- c("The quick brown fox", "jumps over the lazy dog")
+# Create a named vector where names are the patterns and values are the replacements
+replacements <- c("brown" = "red", "lazy" = "quick")
+
+replacements = c("CD14+_CD16-_CD33mixed_monocytes"="Macrophages",
+"CD4+ Tconv"="Treg",
+"Activated Transitional"="CD8+.T.cell",
+"cDC2"="CD8+.T.cell",
+"Naive Memory"="Treg",
+"TREM2+_SPP1+_LAM"="Macrophages",
+"Tex Intermediate/Effector"="CD8+.T.cell",
+"Terminally exh/TCR signalling"="CD8+.T.cell",
+"Gamma delta T cells"="Treg",
+"ISG_macs"="Macrophages",
+"Tex Intermediate"="CD8+.T.cell",
+"CD14-_CD16+_monocytes"="Macrophages",
+"CD14+_CD16-_CD33-"="Macrophages",
+"CD4+ Treg"="Treg",
+"Early Activated/Memory"="CD8+.T.cell",
+"Activated cycling"="CD8+.T.cell",
+"Terminally exh/Tex progenitor 1"="CD8+.T.cell",
+"Tissue resident"="CD8+.T.cell")
+
+replacements2 = c("CD14 minus _CD16 plus _monocytes"="Macrophages",
+"CD4 plus  Treg"="Treg",
+"TREM2 plus _SPP1 plus _LAM"="Macrophages",
+"CD14-_CD16+_monocytes"="Macrophages",
+"CD14 plus _CD16 minus _CD33mixed_monocytes"="Macrophages",
+"CD4 plus  Tconv"="Treg")
+
+
+replacement3 = c("CD14 plus _CD16 minus _CD33 minus" = "Macrophages")
+
+```
+
+```{r}
+#from brian's deg loop nb
+#DO THIS AND SLINGSHOT EACH DAY
+cell.types <- unique(dat@meta.data$general_cell_type)
+
+#exclude <- c('Terminally_exh_Tex_progenitor_1','Tex_Intermediate_Effector',
+#             'Gamma_delta_T_cells','Tissue_resident')
+#cell.types <-  cell.types[!(cell.types %in% exclude)] #too few 'plasmacytoid dendritic cell',
+#print(cell.types)
+#ADD THESE COLUMNS TO THE DAT OBJ
+use.tags <- c( 'PFS.6month.status','Lead_in') # 'treatment', 'timepoint',
+test <- 'wilcox'
+log.name <- "avg_log2FC"
+p.name <- 'p_val_adj'
+p = 0.001
+log_threshes = c(1, 1.5)
+save.filtered <- TRUE
+width = 8
+height = 6
+v=2
+suppressWarnings({
+    out.gene.lists <- file.path(results,sprintf('DEG_contrasts_%s_v%d',test,v),'csv')
+    dir.create(out.gene.lists,recursive = TRUE)
+    filt.out.gene.lists <- file.path(results,sprintf('DEG_contrasts_%s_v%d',test,v),'filtered_csv')
+    dir.create(filt.out.gene.lists,recursive = TRUE)
+    out.de.volcano <- file.path(results,sprintf('DEG_contrasts_%s_v%d',test,v),'volcano')
+    dir.create(out.de.volcano,recursive=TRUE)
+    out.de.heatmap <- file.path(results,sprintf('DEG_contrasts_%s_v%d',test,v),'heatmap')
+    dir.create(out.de.heatmap,recursive=TRUE)
+})
+plot.volc <- TRUE
+plot.heat <- FALSE
+min.pct <- 0.03
+min.cells.feat = 20
+tissue.types <- c( 'PBMC','TIL')
+treatments <- c('all.tx')
+timepoints <- c('Baseline','Week4') #,'Week16')
+system.time({
+    for (log_thresh in log_threshes){  
+        for (time in timepoints){
+            time.sub <- subset(dat, subset = timepoint == time)
+            for (tag in use.tags){
+                if (tag == 'response_status'){
+                    idents <- c('R','NR')
+                }else if (tag == 'PFS.6month'){
+                    idents <- c('NoPrg6M','Prg6M')
+                }else if (tag == 'timepoint'){
+                    idents <- c('Week4','Baseline')
+                }else if (tag == 'treatment'){
+                    idents <- c('combo','rela')
+                }else{
+                    idents <- c('yes','no')
+                }
+                comp.sub <- subset(dat, subset = !!sym(tag) %in% idents)
+                for (tissue in tissue.types){
+                    tissue.sub <- subset(comp.sub, subset = sample_type == tissue)
+                    for (treatment in treatments){
+                        for (cell in cell.types){
+                            if (tag == 'response_status'){
+                                 title = sprintf('Respnder vs Non-Responder, %s DEGs',cell)
+                            }else if (tag == 'timepoint'){
+                                title = sprintf('Week4 vs Baseline, %s DEGs',cell)
+                            }else if (tag == 'PFS.6month'){
+                                title = sprintf('NoPrg6m vs Prg6M, %s DEGs',cell)
+                            } else{
+                                 title = sprintf('yes vs no, %s DEGs',cell)
+                            }
+                            title = paste(tissue, title)
+                            if (cell != 'all.cells'){
+                                suppressWarnings({sub <- subset(tissue.sub, subset = predicted.id == cell)})
+                            } else {
+                                sub <- tissue.sub
+                            }
+                            DefaultAssay(sub) <- "RNA"
+                            Idents(sub) <- tag  
+                            contrast.str <- paste0(time,'.',treatment,'.',tissue,'.',
+                                                   tag,'.',idents[1],'.vs.',idents[2])
+                            base.fn <- sprintf('%s.%s.DEG.p%1.3f.log.%1.1f.%s.%d.minpct.v%d',
+                                               contrast.str, cell, p,log_thresh, test, min.pct*100,v)
+                            base.fn <- stringr::str_replace_all(base.fn,' ','.')
+                            fn=paste0(base.fn,'.csv')            
+                            if (file.exists(file.path(out.gene.lists,fn))){
+                                print(paste('Loading',fn))
+                                de <- read.csv(file.path(out.gene.lists,fn),row.names=1)
+                            }else{
+                                print(paste('Generating',fn))            
+                                markers <- FindMarkers(object=sub,
+                                                     ident.1 = idents[1],   
+                                                     ident.2 = idents[2],      
+                                                     base=2,
+                                                    min.pct = min.pct,
+                                                    min.cells.feature = min.cells.feat, #200 for 10% and 10 for 1%
+                                                    min.cells.group = 50,
+                                                    test.use = 'wilcox')# 'negbinom', #'wilcox_limma',#'MAST', #
+                                                   # latent.vars = c('Patient.Number')) #For models that accept: 'LR', 'negbinom', 'poisson', or 'MAST')
+                                de <- markers
+                                delog2FC <- de[[log.name]]   
+                                max_fc <- 100
+                                de <- de %>%
+                                              mutate(
+                                                log2FC = case_when(
+                                                log2FC == Inf ~ max_fc,
+                                                log2FC > max_fc ~ max_fc,
+                                                log2FC < -max_fc ~ -max_fc,
+                                                log2FC == -Inf ~ -max_fc,
+                                                  TRUE ~ log2FC
+                                                )
+                                              ) %>%
+                                              filter(!is.na(p_val_adj)) # Ensure no NAs in p-values
+                                dediffexpressed <- "NO"    
+                                delog2FC > log_thresh & de$p.adj < p] <- "UP"
+                                delog2FC < -log_thresh & de$p.adj < p] <- "DOWN"
+                                dedelabel[de$diffexpressed != "NO"] <- dediffexpressed != "NO"]                      
+                                de <- de %>% arrange(-log2FC,p_val_adj)               
+                                de$contrast <- contrast.str 
+                                fn=paste0(base.fn,'.csv')
+                                write.csv(de,file.path(out.gene.lists,fn))
+            
+                            }
+                            if (save.filtered){
+                                filt.de <- de %>% filter(diffexpressed %in% c('UP','DOWN'))
+                                fn = paste0('filt.',base.fn,'.csv')
+                                write.csv(filt.de, file.path(filt.out.gene.lists,fn))
+                            }
+                            if (plot.volc){
+                                p1 <- volcano.plot(de, p, log_thresh, title)
+                                save.figs(p1, out.de.volcano, base.fn, width=width, height=height)
+                            }
+                            if (plot.heat){
+                                if (cell == 'T cell'){
+                                    ds.pt = 10
+                                    ndeg = 10
+                                } else {
+                                    ds.pt = 200
+                                    ndeg = 15
+                                }
+                                plot.tag <- tag
+                                # make_heatmap_bi(de,sub)
+                     #            make_heatmap_bi <- function(de, counts, use_info, output.path, orig.contrast.col=c(), rankby='log2FC',
+                     # p = 0.05,  log_thresh = 1, heatmap_top_plus_minus_n = 25,
+                     # use.p = 'adj.P.Val', require.p.sig.heatmap = TRUE, version = 1, 
+                     # heat.colormap = 'warm', save.figs =TRUE, save.name.tag='',cluster_rows = TRUE, 
+                     # cluster_cols = TRUE, save_vector_formats = c('.pdf'),
+                     #         added.cols = c(), show_in_line= TRUE){
+                                p2 <- heatmap.plot(de, sub, title, plot.tag = plot.tag,
+                                                   ndeg_top_bottom = ndeg,  p.thresh=p,
+                                                   ds.pt =ds.pt)
+                                if (any(!is.na(p2))){
+                                    save.figs(p2, out.de.heatmap, base.fn,
+                                          width=10, height=5)
+                                }else{
+                                    print('Too few genes for heatmap')
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+})
+
+
+#clusterLabels = colData(sce)$clust_ID or sce$ident)
+system.time({
+    dat <- qread(file.path(base,'results/arjun_results/tcell_integration_obj',
+                           'combined_tcell_macs_cleaned.qs'))
+})
+
+dat_t = qread(file="dat-arjun-obj-til-subset.qs")
+dat_p = qread(file="dat-arjun-obj-pbmc-subset.qs")
+
+```
+
+
