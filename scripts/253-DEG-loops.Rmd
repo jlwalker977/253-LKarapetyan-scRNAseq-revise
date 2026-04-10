@@ -1,0 +1,1837 @@
+---
+title: "R Notebook - 253 - DEG loops"
+output: html_notebook
+---
+
+
+
+```{r, "libraries"}
+shhh <- suppressPackageStartupMessages
+shhh(library(Matrix))
+shhh(library(SingleR))
+shhh(library(celldex))
+shhh(library(hdf5r))
+shhh(library(dplyr))
+shhh(library(Seurat))
+shhh(library(stringr))
+shhh(library(tidyr))
+shhh(library(ggplot2))
+shhh(library(patchwork))
+shhh(library(Seurat))
+shhh(library(SingleR))
+shhh(library(ggrepel))
+shhh(library(qs))
+shhh(library(tidytext))
+shhh(library(pheatmap))
+shhh(library(ComplexHeatmap))
+shhh(library(ggpubr))
+shhh(library(rstatix))
+shhh(library(SingleR))
+shhh(library(edgeR))
+shhh(library(slingshot))
+shhh(library(RColorBrewer))
+shhh(library(tradeSeq))
+shhh(library(SingleCellExperiment))
+```
+```{r, "loop functions"}
+save.figs <- function(p1,out.dir,base.fn,width,height){
+    fn=paste0(base.fn,'.png')
+    ggsave(file.path(out.dir,fn),
+           plot = p1,
+           width = width,
+           height = height,
+           units = 'in')
+    fn=paste0(base.fn,'.pdf')
+    ggsave(file.path(out.dir,fn),
+           plot = p1,
+           width = width,
+           height = height,
+           units = 'in')
+}
+volcano.plot <- function(de,p_thresh,log_thresh,title){
+    max_abs_x <- max(abs(de$log2FC))
+    suppressWarnings({
+        p1 <- ggplot(data=de, aes(x=log2FC, y=-log10(p.adj+1e-300), col=diffexpressed, label=delabel)) +
+                    geom_point() + 
+                    theme_minimal() +
+                    geom_text_repel() +
+                    scale_color_manual(values=c("blue", "black", "red")) +
+                    geom_vline(xintercept=c(-log_thresh, log_thresh), col="red") +
+                    geom_hline(yintercept=-log10(p_thresh), col="red") +
+                    ggtitle(title) +  xlim(-1.05 * max_abs_x, 1.05 * max_abs_x)
+    })
+
+    return(p1)
+    }
+
+#HEATMAP.PLOT DOES NOT WORK YET
+heatmap.plot <- function(de,sub,title, ds.pt = 100,
+                         ndeg_top_bottom=15, 
+                          p.thresh=0.05,
+                          plot.tag = c('response_status','any_tobacco_smoker')
+                          ){
+
+     DefaultAssay(sub) <- "Spatial"
+     Idents(object=sub) <- 'cgf.sample.id'
+     suppressWarnings({sub <- subset(sub, downsample = ds.pt)})
+     DefaultAssay(sub) <- "Spatial"
+     exclude.tma <- df[grepl(pattern = 'TMA',x = df$Original.ID),'CGF.Sample.ID']
+     annotation_col <- sub@meta.data %>% filter(!(cgf.sample.id %in% exclude.tma)) %>%
+       filter(row.names(.) %in% colnames(sub) ) %>%
+       select(all_of(plot.tag)) #cgf.sample.id, 
+     ndeg = ndeg_top_bottom
+     de %>% filter(p_val_adj <  p.thresh) %>% filter(avg_log2FC >0 ) %>%
+                 top_n(n = ndeg, wt =  avg_log2FC) -> top
+     de %>% filter(p_val_adj <  p.thresh) %>% filter(avg_log2FC <0) %>%
+                 top_n(n = ndeg, wt = -avg_log2FC) -> bottom
+     temp <- rbind(top,bottom)
+     use.genes <- unique(temp$Gene)  
+     lognorm.dat <- as.matrix(sub@assaysdata[use.genes,
+                                                      row.names(annotation_col),
+                                                      drop = FALSE])
+     if (length(use.genes) <= 1){
+         return(NA)
+     }
+     ann_colors <- smoker.ann.colors(plot.tag)
+     # 5. Plot with pheatmap (row scaling built-in)
+     p1 <- pheatmap.wrapper(lognorm.dat, 
+                             annotation_col,
+                             ann_colors,
+                             title)
+     return(p1)
+}
+#part of heatmap.plot, not yet functional
+ smoker.ann.colors <- function(plot.tag){
+     smoker_colors <- c("yes" = "red", "no" = "gray80")
+     response_colors <- c("R" = "green3", "NR" = "black")
+     # 4. Define annotation colors
+     if (length(plot.tag) == 2){
+         ann_colors <- list(
+           response_status = response_colors,
+           any_tobacco_smoker = smoker_colors
+         )
+     }else if (plot.tag[1] == 'response_status'){
+         ann_colors <- list( response_status = response_colors)
+     }else if (plot.tag[1] == 'any_tobacco_smoker'){
+         ann_colors <- list(any_tobacco_smoker = smoker_colors)
+     }
+     return(ann_colors)
+ }
+ #part of heatmap.plot, not yet functional
+ pheatmap.wrapper <- function(lognorm.dat, annotation_col, 
+                              ann_colors, title, cluster_rows=TRUE,
+                              cluster_cols=TRUE,
+                              scale="row"){    
+  
+    p1<- pheatmap(
+       lognorm.dat,
+       main = title,
+       scale = scale,                 # row-wise z-score normalization
+       annotation_col = annotation_col,
+       annotation_colors = ann_colors,
+       clustering_method = "complete",
+       cluster_rows = cluster_rows,
+       cluster_cols = cluster_cols,
+       color = colorRampPalette(c("navy", "white", "firebrick3"))(100),
+       show_colnames = FALSE,
+       show_rownames = TRUE
+     ) 
+     return(p1)
+ }
+    
+```
+```{r}
+#from brian's deg loop nb
+#TIL LOOP SETUP
+prj = "HCC-CBS-253-Hillman-LKarapetyan-scRNAseq-revise"
+base = file.path('/ix/rbao/Projects', prj)
+data = file.path(base,'results','jwork')
+scripts= file.path(base,'scripts')
+results = file.path(base,'results','jwork')
+cell.types <- unique(dat_t@meta.data$general_cell_type)
+##TIL LOOP SETUP 2  
+use.tags <- c( 'PFS.6month','treatment', 'timepoint') # 'treatment', 'timepoint',
+test <- 'MAST'
+test.use <- 'MAST'
+log.name <- "avg_log2FC"
+p.name <- 'p_val_adj'
+p = 0.001
+log_threshes = c(1, 1.5)
+save.filtered <- TRUE
+width = 8
+height = 6
+v=2
+suppressWarnings({
+    out.gene.lists <- file.path(results,sprintf('DEG_contrasts_TIL_%s_v%d',test,v),'csv')
+    dir.create(out.gene.lists,recursive = TRUE)
+    filt.out.gene.lists <- file.path(results,sprintf('DEG_contrasts_TIL_%s_v%d',test,v),'filtered_csv')
+    dir.create(filt.out.gene.lists,recursive = TRUE)
+    out.de.volcano <- file.path(results,sprintf('DEG_contrasts_TIL_%s_v%d',test,v),'volcano')
+    dir.create(out.de.volcano,recursive=TRUE)
+    out.de.heatmap <- file.path(results,sprintf('DEG_contrasts_TIL_%s_v%d',test,v),'heatmap')
+    dir.create(out.de.heatmap,recursive=TRUE)
+})
+plot.volc <- TRUE
+plot.heat <- FALSE
+min.pct <- 0.03
+min.cells.feat = 20
+tissue.types <- c('TIL')
+treatments <- c('rela', 'nivo', 'combo')
+timepoints <- c('Baseline','Week4')
+pfs = c("Prg6M", "NoPrg6M")
+```
+```{r}
+#TIL LOOP
+system.time({
+  for (log_thresh in log_threshes){
+    for (time in timepoints){
+    time.sub <- subset(dat_t, subset = timepoint == time)
+      for (tag in use.tags){
+        if (tag == 'PFS.6month'){
+          idents <- c('NoPrg6M','Prg6M')
+        }else if (tag == 'timepoint'){
+          idents <- c('Week4','Baseline')
+        }else if (tag == 'treatment'){
+          idents <- c('rela','nivo','combo')
+        }else{
+          idents <- c('yes','no')
+}
+comp.sub <- subset(dat_t, subset = !!sym(tag) %in% idents)
+for (tissue in tissue.types){
+tissue.sub <- subset(comp.sub, subset = sample_type == tissue)
+for (treatment in treatments){
+for (cell in cell.types){
+if (tag == 'pathological_response_wk4'){
+title = sprintf('Respnder vs Non-Responder, %s DEGs',cell)
+}else if (tag == 'timepoint'){
+title = sprintf('Week4 vs Baseline, %s DEGs',cell)
+}else if (tag == 'PFS.6month'){
+title = sprintf('NoPrg6m vs Prg6M, %s DEGs',cell)
+} else{
+title = sprintf('yes vs no, %s DEGs',cell)
+}
+title = paste(tissue, title)
+if (cell != 'all.cells'){
+suppressWarnings({sub <- subset(tissue.sub, subset = general_cell_type == cell)})
+} else {
+sub <- tissue.sub
+}
+DefaultAssay(sub) <- "RNA"
+Idents(sub) <- tag
+contrast.str <- paste0(time,'.',treatment,'.',tissue,'.',
+tag,'.',idents[1],'.vs.',idents[2])
+base.fn <- sprintf('%s.%s.DEG.p%1.3f.log.%1.1f.%s.%d.minpct.v%d',
+contrast.str, cell, p,log_thresh, test, min.pct*100,v)
+base.fn <- stringr::str_replace_all(base.fn,' ','.')
+fn=paste0(base.fn,'.csv')
+if (file.exists(file.path(out.gene.lists,fn))){
+print(paste('Loading',fn))
+de <- read.csv(file.path(out.gene.lists,fn),row.names=1)
+}else{
+print(paste('Generating',fn))
+markers <- FindMarkers(object=sub,
+ident.1 = idents[1],
+ident.2 = idents[2],
+base=2,
+min.pct = min.pct,
+min.cells.feature = min.cells.feat, #200 for 10% and 10 for 1%
+min.cells.group = 50,
+test.use = 'MAST')
+de <- markers
+de$Gene = row.names(markers)
+de$log2FC <- de[[log.name]]
+max_fc <- 100
+de <- de %>%
+mutate(
+log2FC = case_when(
+log2FC == Inf ~ max_fc,
+log2FC > max_fc ~ max_fc,
+log2FC < -max_fc ~ -max_fc,
+log2FC == -Inf ~ -max_fc,
+TRUE ~ log2FC
+)
+) %>%
+filter(!is.na(p_val_adj))
+de$p.adj <- de[[p.name]]
+de$diffexpressed <- "NO"
+de$diffexpressed[de$log2FC > log_thresh & de$p.adj < p] <- "UP"
+de$diffexpressed[de$log2FC < -log_thresh & de$p.adj < p] <- "DOWN"
+de$diffexpressed <- as.character(de$diffexpressed)
+#de$Gene = rownames(de)
+de$delabel <- NA # Create the column first
+de$delabel[de$diffexpressed != "NO"] <- de$Gene[de$diffexpressed != "NO"]
+#de$delabel<- NA
+#de$delabel[de$diffexpressed != "NO"] <- de$Gene[de$diffexpressed != "NO"]
+de <- de %>% arrange(-log2FC,p_val_adj)
+de$contrast <- contrast.str
+fn=paste0(base.fn,'.csv')
+write.csv(de,file.path(out.gene.lists,fn))
+}
+if (save.filtered){
+filt.de <- de %>% filter(diffexpressed %in% c('UP','DOWN'))
+fn = paste0('filt.',base.fn,'.csv')
+write.csv(filt.de, file.path(filt.out.gene.lists,fn))
+}
+if (plot.volc){
+p1 <- volcano.plot(de, p, log_thresh, title)
+save.figs(p1, out.de.volcano, base.fn, width=width, height=height)
+}
+if (plot.heat){
+if (cell == 'CD8plus.T.cell'){
+ds.pt = 10
+ndeg = 10
+} else {
+ds.pt = 200
+ndeg = 15
+}
+plot.tag <- tag
+# make_heatmap_bi(de,sub)
+#            make_heatmap_bi <- function(de, counts, use_info, output.path, orig.contrast.col=c(), rankby='log2FC',
+# p = 0.05,  log_thresh = 1, heatmap_top_plus_minus_n = 25,
+# use.p = 'adj.P.Val', require.p.sig.heatmap = TRUE, version = 1,
+# heat.colormap = 'warm', save.figs =TRUE, save.name.tag='',cluster_rows = TRUE,
+# cluster_cols = TRUE, save_vector_formats = c('.pdf'),
+#         added.cols = c(), show_in_line= TRUE){
+p2 <- heatmap.plot(de, sub, title, plot.tag = plot.tag,
+ndeg_top_bottom = ndeg,  p.thresh=p,
+ds.pt =ds.pt)
+if (any(!is.na(p2))){
+save.figs(p2, out.de.heatmap, base.fn,
+width=10, height=5)
+}else{
+print('Too few genes for heatmap')
+}
+}
+}
+}
+}
+}
+}
+}
+})
+```
+```{r}
+#PBMC LOOP SETUP
+dat_p = qread("dat-pbmc-prog-col.qs")
+prj = "HCC-CBS-253-Hillman-LKarapetyan-scRNAseq-revise"
+base = file.path('/ix/rbao/Projects', prj)
+data = file.path(base,'results','jwork')
+scripts= file.path(base,'scripts')
+results = file.path(base,'results','jwork')
+fn <- file.path(results,sprintf('%d_rds_matched_info_pbmc_pfs_03022026_jw.csv',dim(dat_p@meta.data)[1]))
+use.tags <- c( 'PFS.6month','timepoint', 'treatment') # 'treatment', 'timepoint',
+test <- 'wilcox'
+log.name <- "avg_log2FC"
+p.name <- 'p_val_adj'
+p = 0.001
+log_threshes = c(1, 1.5)
+save.filtered <- TRUE
+width = 8
+height = 6
+v=1
+suppressWarnings({
+    out.gene.lists <- file.path(results,sprintf('DEG_contrasts_PBMC_%s_v%d',test,v),'csv')
+    dir.create(out.gene.lists,recursive = TRUE)
+    filt.out.gene.lists <- file.path(results,sprintf('DEG_contrasts_PBMC_%s_v%d',test,v),'filtered_csv')
+    dir.create(filt.out.gene.lists,recursive = TRUE)
+    out.de.volcano <- file.path(results,sprintf('DEG_contrasts_PBMC_%s_v%d',test,v),'volcano')
+    dir.create(out.de.volcano,recursive=TRUE)
+    out.de.heatmap <- file.path(results,sprintf('DEG_contrasts_PBMC_%s_v%d',test,v),'heatmap')
+    dir.create(out.de.heatmap,recursive=TRUE)
+})
+print(fn)
+write.csv(dat_p@meta.data, fn)
+plot.volc <- TRUE
+plot.heat <- FALSE
+min.pct <- 0.03
+min.cells.feat = 20
+tissue.types <- c('PBMC')
+treatments <- c('combo', 'nivo','rela')
+timepoints <- c('Baseline','Week4') #,'Week16')
+```
+```{r}
+#PBMC loop
+system.time({
+for (log_thresh in log_threshes){
+for (time in timepoints){
+time.sub <- subset(dat_p, subset = timepoint == time)
+for (tag in use.tags){
+if (tag == 'PFS.6month'){
+idents <- c('NoPrg6M','Prg6M')
+}else if (tag == 'timepoint'){
+idents <- c('Week4','Baseline')
+}else if (tag == 'treatment'){
+idents <- c('combo','rela','nivo')
+}else{
+idents <- c('yes','no')
+}
+comp.sub <- subset(dat_p, subset = !!sym(tag) %in% idents)
+for (tissue in tissue.types){
+tissue.sub <- subset(comp.sub, subset = sample_type == tissue)
+for (treatment in treatments){
+for (cell in cell.types){
+if (tag == 'pathological_response_wk4'){
+title = sprintf('Respnder vs Non-Responder, %s DEGs',cell)
+}else if (tag == 'timepoint'){
+title = sprintf('Week4 vs Baseline, %s DEGs',cell)
+}else if (tag == 'PFS.6month'){
+title = sprintf('NoPrg6m vs Prg6M, %s DEGs',cell)
+} else{
+title = sprintf('yes vs no, %s DEGs',cell)
+}
+title = paste(tissue, title)
+if (cell != 'all.cells'){
+suppressWarnings({sub <- subset(tissue.sub, subset = general_cell_type == cell)})
+} else {
+sub <- tissue.sub
+}
+DefaultAssay(sub) <- "RNA"
+Idents(sub) <- tag
+contrast.str <- paste0(time,'.',treatment,'.',tissue,'.',
+tag,'.',idents[1],'.vs.',idents[2])
+base.fn <- sprintf('%s.%s.DEG.p%1.3f.log.%1.1f.%s.%d.minpct.v%d',
+contrast.str, cell, p,log_thresh, test, min.pct*100,v)
+base.fn <- stringr::str_replace_all(base.fn,' ','.')
+fn=paste0(base.fn,'.csv')
+if (file.exists(file.path(out.gene.lists,fn))){
+print(paste('Loading',fn))
+de <- read.csv(file.path(out.gene.lists,fn),row.names=1)
+}else{
+print(paste('Generating',fn))
+markers <- FindMarkers(object=sub,
+ident.1 = idents[1],
+ident.2 = idents[2],
+base=2,
+min.pct = min.pct,
+min.cells.feature = min.cells.feat, #200 for 10% and 10 for 1%
+min.cells.group = 50,
+test.use = 'wilcox')# 'negbinom', #'wilcox_limma',#'MAST', #
+# latent.vars = c('Patient.Number')) #For models that accept: 'LR', 'negbinom', 'poisson', or 'MAST')
+de <- markers
+de$Gene = row.names(markers)
+de$log2FC <- de[[log.name]]
+max_fc <- 100
+de <- de %>%
+mutate(
+log2FC = case_when(
+log2FC == Inf ~ max_fc,
+log2FC > max_fc ~ max_fc,
+log2FC < -max_fc ~ -max_fc,
+log2FC == -Inf ~ -max_fc,
+TRUE ~ log2FC
+)
+) %>%
+filter(!is.na(p_val_adj))
+de$p.adj <- de[[p.name]]
+de$diffexpressed <- "NO"
+de$diffexpressed[de$log2FC > log_thresh & de$p.adj < p] <- "UP"
+de$diffexpressed[de$log2FC < -log_thresh & de$p.adj < p] <- "DOWN"
+de$diffexpressed <- as.character(de$diffexpressed)
+#de$Gene = rownames(de)
+de$delabel <- NA # Create the column first
+de$delabel[de$diffexpressed != "NO"] <- de$Gene[de$diffexpressed != "NO"]
+#de$delabel<- NA
+#de$delabel[de$diffexpressed != "NO"] <- de$Gene[de$diffexpressed != "NO"]
+de <- de %>% arrange(-log2FC,p_val_adj)
+de$contrast <- contrast.str
+fn=paste0(base.fn,'.csv')
+write.csv(de,file.path(out.gene.lists,fn))
+}
+if (save.filtered){
+filt.de <- de %>% filter(diffexpressed %in% c('UP','DOWN'))
+fn = paste0('filt.',base.fn,'.csv')
+write.csv(filt.de, file.path(filt.out.gene.lists,fn))
+}
+if (plot.volc){
+p1 <- volcano.plot(de, p, log_thresh, title)
+save.figs(p1, out.de.volcano, base.fn, width=width, height=height)
+}
+if (plot.heat){
+if (cell == 'CD8plus.T.cell'){
+ds.pt = 10
+ndeg = 10
+} else {
+ds.pt = 200
+ndeg = 15
+}
+plot.tag <- tag
+# make_heatmap_bi(de,sub)
+#            make_heatmap_bi <- function(de, counts, use_info, output.path, orig.contrast.col=c(), rankby='log2FC',
+# p = 0.05,  log_thresh = 1, heatmap_top_plus_minus_n = 25,
+# use.p = 'adj.P.Val', require.p.sig.heatmap = TRUE, version = 1,
+# heat.colormap = 'warm', save.figs =TRUE, save.name.tag='',cluster_rows = TRUE,
+# cluster_cols = TRUE, save_vector_formats = c('.pdf'),
+#         added.cols = c(), show_in_line= TRUE){
+p2 <- heatmap.plot(de, sub, title, plot.tag = plot.tag,
+ndeg_top_bottom = ndeg,  p.thresh=p,
+ds.pt =ds.pt)
+if (any(!is.na(p2))){
+save.figs(p2, out.de.heatmap, base.fn,
+width=10, height=5)
+}else{
+print('Too few genes for heatmap')
+}
+}
+}
+}
+}
+}
+}
+}
+})
+```
+
+```{r}
+#FIXED BY CLAUDE
+#TIL LOOP SETUP
+prj = "HCC-CBS-253-Hillman-LKarapetyan-scRNAseq-revise"
+base = file.path('/ix/rbao/Projects', prj)
+data = file.path(base,'results','jwork')
+scripts= file.path(base,'scripts')
+results = file.path(base,'results','jwork')
+cell.types <- unique(dat_t@meta.data$general_cell_type)
+##TIL LOOP SETUP 2  
+use.tags <- c( 'PFS.6month','treatment', 'timepoint') # 'treatment', 'timepoint',
+test <- 'MAST'
+log.name <- "avg_log2FC"
+p.name <- 'p_val_adj'
+p = 0.001
+log_threshes = c(1, 1.5)
+save.filtered <- TRUE
+width = 8
+height = 6
+v=2
+suppressWarnings({
+    out.gene.lists <- file.path(results,sprintf('DEG_contrasts_TIL_%s_v%d',test,v),'csv')
+    dir.create(out.gene.lists,recursive = TRUE)
+    filt.out.gene.lists <- file.path(results,sprintf('DEG_contrasts_TIL_%s_v%d',test,v),'filtered_csv')
+    dir.create(filt.out.gene.lists,recursive = TRUE)
+    out.de.volcano <- file.path(results,sprintf('DEG_contrasts_TIL_%s_v%d',test,v),'volcano')
+    dir.create(out.de.volcano,recursive=TRUE)
+    out.de.heatmap <- file.path(results,sprintf('DEG_contrasts_TIL_%s_v%d',test,v),'heatmap')
+    dir.create(out.de.heatmap,recursive=TRUE)
+})
+plot.volc <- TRUE
+plot.heat <- FALSE
+min.pct <- 0.03
+min.cells.feat = 20
+tissue.types <- c('TIL')
+treatments <- c('rela', 'nivo', 'combo')
+timepoints <- c('Baseline','Week4')
+PFS.6month <- c('Prg6M','NoPrg6M')
+```
+```{r}
+#TIL LOOP
+system.time({
+for (log_thresh in log_threshes){
+  for (time in timepoints){
+    time.sub <- subset(dat_t, subset = timepoint == time)      # ✓ fixed
+    for (tag in use.tags){
+      if (tag == 'PFS.6month'){
+        idents <- c('NoPrg6M','Prg6M')
+      } else if (tag == 'timepoint'){
+        idents <- c('Week4','Baseline')
+      } else if (tag == 'treatment'){
+        contrast.pairs = list(
+          c('rela', 'nivo'),
+          c('rela', 'combo'),
+          c('nivo', 'combo'))
+      } else {
+        contrast.pairs = list(idents[1:2]) }
+      } else {
+        idents <- c('yes','no')
+      }
+      comp.sub <- subset(time.sub, subset = !!sym(tag) %in% idents)  # ✓ fixed
+      for (tissue in tissue.types){
+        tissue.sub <- subset(comp.sub, subset = sample_type == tissue)
+        for (trt in treatments){                                       # ✓ renamed
+          treat.sub <- subset(tissue.sub, subset = treatment == trt)  # ✓ added
+          for (cell in cell.types){
+            if (tag == 'PFS.6month'){
+              title = sprintf('NoPrg6m vs Prg6M, %s DEGs', cell)
+            } else if (tag == 'timepoint'){
+              title = sprintf('Week4 vs Baseline, %s DEGs', cell)
+            } else if (tag == 'treatment'){
+              title = sprintf('rela vs nivo vs combo, %s DEGs', cell) # ✓ fixed
+            } else {
+              title = sprintf('yes vs no, %s DEGs', cell)             # ✓ fixed brace
+            }
+            title = paste(tissue, title)
+            if (cell != 'all.cells'){
+              sub <- subset(treat.sub, subset = general_cell_type == cell) # ✓ uses treat.sub
+            } else {
+              sub <- treat.sub                                              # ✓ uses treat.sub
+            }
+            DefaultAssay(sub) <- "RNA"
+            Idents(sub) <- tag
+            contrast.str <- paste0(time,'.',trt,'.',tissue,'.',            # ✓ uses trt
+                                   tag,'.',idents[1],'.vs.',idents[2])
+base.fn <- sprintf('%s.%s.DEG.p%1.3f.log.%1.1f.%s.%d.minpct.v%d',
+contrast.str, cell, p,log_thresh, test, min.pct*100,v)
+base.fn <- stringr::str_replace_all(base.fn,' ','.')
+fn=paste0(base.fn,'.csv')
+if (file.exists(file.path(out.gene.lists,fn))){
+print(paste('Loading',fn))
+de <- read.csv(file.path(out.gene.lists,fn),row.names=1)
+}else{
+print(paste('Generating',fn))
+markers <- FindMarkers(object=sub,
+ident.1 = idents[1],
+ident.2 = idents[2],
+base=2,
+min.pct = min.pct,
+min.cells.feature = min.cells.feat, #200 for 10% and 10 for 1%
+min.cells.group = 50,
+test.use = 'MAST')# 'negbinom', #'wilcox_limma',#'MAST', #
+# latent.vars = c('Patient.Number')) #For models that accept: 'LR', 'negbinom', 'poisson', or 'MAST')
+de <- markers
+de$Gene = row.names(markers)
+de$log2FC <- de[[log.name]]
+max_fc <- 100
+de <- de %>%
+mutate(
+log2FC = case_when(
+log2FC == Inf ~ max_fc,
+log2FC > max_fc ~ max_fc,
+log2FC < -max_fc ~ -max_fc,
+log2FC == -Inf ~ -max_fc,
+TRUE ~ log2FC
+)
+) %>%
+filter(!is.na(p_val_adj))
+de$p.adj <- de[[p.name]]
+de$diffexpressed <- "NO"
+de$diffexpressed[de$log2FC > log_thresh & de$p.adj < p] <- "UP"
+de$diffexpressed[de$log2FC < -log_thresh & de$p.adj < p] <- "DOWN"
+de$diffexpressed <- as.character(de$diffexpressed)
+#de$Gene = rownames(de)
+de$delabel <- NA # Create the column first
+de$delabel[de$diffexpressed != "NO"] <- de$Gene[de$diffexpressed != "NO"]
+#de$delabel<- NA
+#de$delabel[de$diffexpressed != "NO"] <- de$Gene[de$diffexpressed != "NO"]
+de <- de %>% arrange(-log2FC,p_val_adj)
+de$contrast <- contrast.str
+fn=paste0(base.fn,'.csv')
+write.csv(de,file.path(out.gene.lists,fn))
+}
+if (save.filtered){
+filt.de <- de %>% filter(diffexpressed %in% c('UP','DOWN'))
+fn = paste0('filt.',base.fn,'.csv')
+write.csv(filt.de, file.path(filt.out.gene.lists,fn))
+}
+if (plot.volc){
+p1 <- volcano.plot(de, p, log_thresh, title)
+save.figs(p1, out.de.volcano, base.fn, width=width, height=height)
+}
+if (plot.heat){
+if (cell == cell){
+ds.pt = 10
+ndeg = 10
+} else {
+ds.pt = 200
+ndeg = 15
+}
+plot.tag <- tag
+# make_heatmap_bi(de,sub)
+#            make_heatmap_bi <- function(de, counts, use_info, output.path, orig.contrast.col=c(), rankby='log2FC',
+# p = 0.05,  log_thresh = 1, heatmap_top_plus_minus_n = 25,
+# use.p = 'adj.P.Val', require.p.sig.heatmap = TRUE, version = 1,
+# heat.colormap = 'warm', save.figs =TRUE, save.name.tag='',cluster_rows = TRUE,
+# cluster_cols = TRUE, save_vector_formats = c('.pdf'),
+#         added.cols = c(), show_in_line= TRUE){
+p2 <- heatmap.plot(de, sub, title, plot.tag = plot.tag,
+ndeg_top_bottom = ndeg,  p.thresh=p,
+ds.pt =ds.pt)
+if (any(!is.na(p2))){
+save.figs(p2, out.de.heatmap, base.fn,
+width=10, height=5)
+}else{
+print('Too few genes for heatmap')
+}
+}
+}
+}
+}
+}
+}
+}
+})
+
+```
+```{r}
+#claude fix 2
+#TIL LOOP
+system.time({
+for (log_thresh in log_threshes){
+for (time in timepoints){
+  time.sub <- subset(dat_t, subset = timepoint == time)
+  for (tag in use.tags){
+    if (tag == 'PFS.6month'){
+      idents <- c('NoPrg6M','Prg6M')
+    } else if (tag == 'timepoint'){
+      idents <- c('Week4','Baseline')
+    } else if (tag == 'treatment'){
+      idents <- c('combo','rela','nivo')
+    } else {
+      idents <- c('yes','no')
+    }
+    
+    # Define pairwise contrasts
+    if (tag == 'treatment'){
+      contrast.pairs <- list(c('combo','rela'), c('combo','nivo'), c('rela','nivo'))
+    } else {
+      contrast.pairs <- list(idents[1:2])
+    }
+    
+    comp.sub <- subset(time.sub, subset = !!sym(tag) %in% idents)  # fixed: was dat_t
+    
+    for (tissue in tissue.types){
+      tissue.sub <- subset(comp.sub, subset = sample_type == tissue)
+      
+      for (trt in treatments){
+        # Don't subset by treatment when treatment IS the comparison tag
+        if (tag == 'treatment'){
+          if (trt != treatments[1]) next  # run only once for treatment comparisons
+          treat.sub <- tissue.sub         # keep all treatments present
+        } else {
+          treat.sub <- subset(tissue.sub, subset = treatment == trt)
+        }
+        
+        for (cell in cell.types){
+          # Guard: skip if no cells found
+          if (ncol(treat.sub) == 0){
+            message('Skipping: no cells for trt=', trt, ' tissue=', tissue, ' tag=', tag)
+            next
+          }
+          
+          if (cell != 'all.cells'){
+            sub <- suppressWarnings(subset(treat.sub, subset = general_cell_type == cell))
+          } else {
+            sub <- treat.sub
+          }
+          
+          # Guard: skip if subset is empty
+          if (ncol(sub) == 0){
+            message('Skipping: no cells for cell=', cell)
+            next
+          }
+          
+          DefaultAssay(sub) <- "RNA"
+          Idents(sub) <- tag
+          
+          # Title
+          if (tag == 'PFS.6month'){
+            title = sprintf('NoPrg6m vs Prg6M, %s DEGs', cell)
+          } else if (tag == 'timepoint'){
+            title = sprintf('Week4 vs Baseline, %s DEGs', cell)
+          } else if (tag == 'treatment'){
+            title = sprintf('Treatment comparisons, %s DEGs', cell)
+          } else {
+            title = sprintf('yes vs no, %s DEGs', cell)
+          }
+          title = paste(tissue, title)
+          
+          # Loop over pairwise contrasts
+          for (pair in contrast.pairs){
+            ident.1 <- pair[1]
+            ident.2 <- pair[2]
+            
+            # Guard: check both idents exist in this subset
+            available.idents <- unique(as.character(sub[[tag]][,1]))
+            if (!ident.1 %in% available.idents | !ident.2 %in% available.idents){
+              message('Skipping: missing ident in subset. Need: ', ident.1, ' and ', 
+                      ident.2, '. Found: ', paste(available.idents, collapse=', '))
+              next
+            }
+            
+            # Update title for pairwise treatment contrasts
+            if (tag == 'treatment'){
+              title = sprintf('%s vs %s, %s DEGs', ident.1, ident.2, cell)
+              title = paste(tissue, title)
+            }
+            
+            contrast.str <- paste0(time,'.',trt,'.',tissue,'.',
+                                   tag,'.',ident.1,'.vs.',ident.2)  # fixed: uses trt
+            base.fn <- sprintf('%s.%s.DEG.p%1.3f.log.%1.1f.%s.%d.minpct.v%d',
+                               contrast.str, cell, p, log_thresh, test, min.pct*100, v)
+            base.fn <- stringr::str_replace_all(base.fn, ' ', '.')
+            fn <- paste0(base.fn, '.csv')
+            
+            if (file.exists(file.path(out.gene.lists, fn))){
+              print(paste('Loading', fn))
+              de <- read.csv(file.path(out.gene.lists, fn), row.names=1)
+            } else {
+              print(paste('Generating', fn))
+              markers <- tryCatch({
+                FindMarkers(object = sub,
+                            ident.1 = ident.1,
+                            ident.2 = ident.2,
+                            base = 2,
+                            min.pct = min.pct,
+                            min.cells.feature = min.cells.feat,
+                            min.cells.group = 50,
+                            test.use = 'MAST')
+              }, error = function(e){
+                message('FindMarkers failed for ', contrast.str, ': ', e$message)
+                return(NULL)
+              })
+              
+              if (is.null(markers) || nrow(markers) == 0){
+                message('No markers found for ', contrast.str, ', skipping')
+                next
+              }
+              
+              de <- markers
+              de$Gene <- row.names(markers)
+              de$log2FC <- de[[log.name]]
+              max_fc <- 100
+              de <- de %>%
+                mutate(
+                  log2FC = case_when(
+                    log2FC == Inf   ~ max_fc,
+                    log2FC > max_fc ~ max_fc,
+                    log2FC < -max_fc ~ -max_fc,
+                    log2FC == -Inf  ~ -max_fc,
+                    TRUE            ~ log2FC
+                  )
+                ) %>%
+                filter(!is.na(p_val_adj))
+              
+              de$p.adj <- de[[p.name]]
+              de$diffexpressed <- "NO"
+              de$diffexpressed[de$log2FC > log_thresh  & de$p.adj < p] <- "UP"
+              de$diffexpressed[de$log2FC < -log_thresh & de$p.adj < p] <- "DOWN"
+              de$diffexpressed <- as.character(de$diffexpressed)
+              de$delabel <- NA
+              de$delabel[de$diffexpressed != "NO"] <- de$Gene[de$diffexpressed != "NO"]
+              de <- de %>% arrange(-log2FC, p_val_adj)
+              de$contrast <- contrast.str
+              
+              write.csv(de, file.path(out.gene.lists, fn))
+            }
+            
+            if (save.filtered){
+              filt.de <- de %>% filter(diffexpressed %in% c('UP','DOWN'))
+              fn.filt <- paste0('filt.', base.fn, '.csv')
+              write.csv(filt.de, file.path(filt.out.gene.lists, fn.filt))
+            }
+            
+            if (plot.volc){
+              p1 <- volcano.plot(de, p, log_thresh, title)
+              save.figs(p1, out.de.volcano, base.fn, width=width, height=height)
+            }
+            
+            if (plot.heat){
+              if (cell == 'all.cells'){   # fixed: was cell = cell
+                ds.pt <- 10
+                ndeg  <- 10
+              } else {
+                ds.pt <- 200
+                ndeg  <- 15
+              }
+              plot.tag <- tag
+              p2 <- heatmap.plot(de, sub, title, plot.tag = plot.tag,
+                                 ndeg_top_bottom = ndeg, p.thresh = p,
+                                 ds.pt = ds.pt)
+              if (any(!is.na(p2))){
+                save.figs(p2, out.de.heatmap, base.fn, width=10, height=5)
+              } else {
+                print('Too few genes for heatmap')
+              }
+            }
+            
+          } # end pair loop
+        } # end cell loop
+      } # end trt loop
+    } # end tissue loop
+  } # end tag loop
+} # end time loop
+} # end log_thresh loop
+}) # end system.time
+
+```
+```{r}
+#### START HERE FOR THE GOOD STUFF
+#claude til + new heatmap plot func
+#TIL claude fix 4
+#TIL LOOP SETUP
+prj = "HCC-CBS-253-Hillman-LKarapetyan-scRNAseq-revise"
+base = file.path('/ix/rbao/Projects', prj)
+data = file.path(base,'results','jwork')
+scripts= file.path(base,'scripts')
+results = file.path(base,'results','jwork')
+cell.types <- unique(dat_t@meta.data$general_cell_type)
+##TIL LOOP SETUP 2  
+use.tags <- c( 'PFS.6month','treatment', 'timepoint') # 'treatment', 'timepoint',
+test <- 'MAST'
+log.name <- "avg_log2FC"
+p.name <- 'p_val_adj'
+p = 0.001
+log_threshes = c(1, 1.5)
+save.filtered <- TRUE
+width = 8
+height = 6
+v=3
+suppressWarnings({
+    out.gene.lists <- file.path(results,sprintf('DEG_contrasts_TIL_%s_v%d',test,v),'csv')
+    dir.create(out.gene.lists,recursive = TRUE)
+    filt.out.gene.lists <- file.path(results,sprintf('DEG_contrasts_TIL_%s_v%d',test,v),'filtered_csv')
+    dir.create(filt.out.gene.lists,recursive = TRUE)
+    out.de.volcano <- file.path(results,sprintf('DEG_contrasts_TIL_%s_v%d',test,v),'volcano')
+    dir.create(out.de.volcano,recursive=TRUE)
+    out.de.heatmap <- file.path(results,sprintf('DEG_contrasts_TIL_%s_v%d',test,v),'heatmap')
+    dir.create(out.de.heatmap,recursive=TRUE)
+})
+plot.volc <- TRUE
+plot.heat <- TRUE
+min.pct <- 0.03
+min.cells.feat = 20
+tissue.types <- c('TIL')
+treatments <- c('rela', 'nivo', 'combo')
+timepoints <- c('Baseline','Week4')
+PFS.6month <- c('Prg6M','NoPrg6M')
+
+#TIL new loop with heatmap
+system.time({
+for (log_thresh in log_threshes){
+for (time in timepoints){
+for (tag in use.tags){
+
+    # --- Define idents ---
+    if (tag == 'PFS.6month'){
+      idents <- c('NoPrg6M','Prg6M')
+    } else if (tag == 'timepoint'){
+      idents <- c('Week4','Baseline')
+    } else if (tag == 'treatment'){
+      idents <- c('combo','rela','nivo')
+    } else {
+      idents <- c('yes','no')
+    }
+
+    # --- Define pairwise contrasts ---
+    if (tag == 'treatment'){
+      contrast.pairs <- list(c('combo','rela'), c('combo','nivo'), c('rela','nivo'))
+    } else {
+      contrast.pairs <- list(idents[1:2])
+    }
+
+    # --- Timepoint subsetting: skip redundant iterations when tag == 'timepoint' ---
+    if (tag == 'timepoint'){
+      if (time != timepoints[1]) next  # run only once across time loop
+      time.sub <- dat_t                # keep all timepoints for comparison
+    } else {
+      time.sub <- subset(dat_t, subset = timepoint == time)
+    }
+
+    comp.sub <- subset(time.sub, subset = !!sym(tag) %in% idents)
+
+    for (tissue in tissue.types){
+      tissue.sub <- subset(comp.sub, subset = sample_type == tissue)
+
+      for (trt in treatments){
+
+        # --- Treatment subsetting: skip redundant iterations when tag == 'treatment' ---
+        if (tag == 'treatment'){
+          if (trt != treatments[1]) next
+          treat.sub <- tissue.sub
+        } else {
+          treat.sub <- subset(tissue.sub, subset = treatment == trt)
+        }
+
+        for (cell in cell.types){
+
+          if (ncol(treat.sub) == 0){
+            message('Skipping: no cells for trt=', trt, ' tissue=', tissue, ' tag=', tag)
+            next
+          }
+
+          if (cell != 'all.cells'){
+            sub <- suppressWarnings(subset(treat.sub, subset = general_cell_type == cell))
+          } else {
+            sub <- treat.sub
+          }
+
+          if (ncol(sub) == 0){
+            message('Skipping: no cells for cell=', cell)
+            next
+          }
+
+          DefaultAssay(sub) <- "RNA"
+          Idents(sub) <- tag
+
+          # --- Title ---
+          if (tag == 'PFS.6month'){
+            title = sprintf('NoPrg6m vs Prg6M, %s DEGs', cell)
+          } else if (tag == 'timepoint'){
+            title = sprintf('Week4 vs Baseline, %s DEGs', cell)
+          } else if (tag == 'treatment'){
+            title = sprintf('Treatment comparisons, %s DEGs', cell)
+          } else {
+            title = sprintf('yes vs no, %s DEGs', cell)
+          }
+          title = paste(tissue, title)
+
+          for (pair in contrast.pairs){
+            ident.1 <- pair[1]
+            ident.2 <- pair[2]
+
+            # --- Guard: both idents must exist in subset ---
+            available.idents <- unique(as.character(sub[[tag]][,1]))
+            if (!ident.1 %in% available.idents || !ident.2 %in% available.idents){
+              message('Skipping: missing ident. Need: ', ident.1, ' and ', ident.2,
+                      '. Found: ', paste(available.idents, collapse=', '))
+              next
+            }
+
+            if (tag == 'treatment'){
+              title = paste(tissue, sprintf('%s vs %s, %s DEGs', ident.1, ident.2, cell))
+            }
+
+            # --- For timepoint tag, use 'all' as time label in filename ---
+            time.label <- if (tag == 'timepoint') 'alltime' else time
+            trt.label  <- if (tag == 'treatment') 'alltrt'  else trt
+
+            contrast.str <- paste0(time.label,'.',trt.label,'.',tissue,'.',
+                                   tag,'.',ident.1,'.vs.',ident.2)
+            base.fn <- sprintf('%s.%s.DEG.p%1.3f.log.%1.1f.%s.%d.minpct.v%d',
+                               contrast.str, cell, p, log_thresh, test, min.pct*100, v)
+            base.fn <- stringr::str_replace_all(base.fn, ' ', '.')
+            fn <- paste0(base.fn, '.csv')
+
+            if (file.exists(file.path(out.gene.lists, fn))){
+              print(paste('Loading', fn))
+              de <- read.csv(file.path(out.gene.lists, fn), row.names=1)
+            } else {
+              print(paste('Generating', fn))
+              markers <- tryCatch({
+                FindMarkers(object = sub,
+                            ident.1 = ident.1,
+                            ident.2 = ident.2,
+                            base = 2,
+                            min.pct = min.pct,
+                            min.cells.feature = min.cells.feat,
+                            min.cells.group = 50,
+                            test.use = 'MAST')
+              }, error = function(e){
+                message('FindMarkers failed for ', contrast.str, ': ', e$message)
+                return(NULL)
+              })
+
+              if (is.null(markers) || nrow(markers) == 0){
+                message('No markers found for ', contrast.str, ', skipping')
+                next
+              }
+
+              de <- markers
+              de$Gene <- row.names(markers)
+              de$log2FC <- de[[log.name]]
+              max_fc <- 100
+              de <- de %>%
+                mutate(
+                  log2FC = case_when(
+                    log2FC == Inf    ~ max_fc,
+                    log2FC > max_fc  ~ max_fc,
+                    log2FC < -max_fc ~ -max_fc,
+                    log2FC == -Inf   ~ -max_fc,
+                    TRUE             ~ log2FC
+                  )
+                ) %>%
+                filter(!is.na(p_val_adj))
+
+              de$p.adj <- de[[p.name]]
+              de$diffexpressed <- "NO"
+              de$diffexpressed[de$log2FC > log_thresh  & de$p.adj < p] <- "UP"
+              de$diffexpressed[de$log2FC < -log_thresh & de$p.adj < p] <- "DOWN"
+              de$diffexpressed <- as.character(de$diffexpressed)
+              de$delabel <- NA
+              de$delabel[de$diffexpressed != "NO"] <- de$Gene[de$diffexpressed != "NO"]
+              de <- de %>% arrange(-log2FC, p_val_adj)
+              de$contrast <- contrast.str
+
+              write.csv(de, file.path(out.gene.lists, fn))
+            }
+
+            if (save.filtered){
+              filt.de <- de %>% filter(diffexpressed %in% c('UP','DOWN'))
+              fn.filt <- paste0('filt.', base.fn, '.csv')
+              write.csv(filt.de, file.path(filt.out.gene.lists, fn.filt))
+            }
+
+            if (plot.volc){
+              p1 <- volcano.plot(de, p, log_thresh, title)
+              save.figs(p1, out.de.volcano, base.fn, width=width, height=height)
+            }
+
+            if (plot.heat){
+              if (cell == 'all.cells'){
+                ds.pt <- 10
+                ndeg  <- 10
+              } else {
+                ds.pt <- 200
+                ndeg  <- 15
+              }
+              plot.tag <- tag
+              p2 <- heatmap.plot(de, sub, title, plot.tag = plot.tag,
+                                 ndeg_top_bottom = ndeg, p.thresh = p,
+                                 ds.pt = ds.pt)
+              if (any(!is.na(p2))){
+                save.figs(p2, out.de.heatmap, base.fn, width=10, height=5)
+              } else {
+                print('Too few genes for heatmap')
+              }
+            }
+
+          } # end pair loop
+        } # end cell loop
+      } # end trt loop
+    } # end tissue loop
+} # end tag loop  ← moved inside time loop so tag is defined before time.sub logic
+} # end time loop
+} # end log_thresh loop
+}) # end system.time
+```
+```{r}
+#PBMC claude fix 4
+#PBMC LOOP SETUP
+prj = "HCC-CBS-253-Hillman-LKarapetyan-scRNAseq-revise"
+base = file.path('/ix/rbao/Projects', prj)
+data = file.path(base,'results','jwork')
+scripts= file.path(base,'scripts')
+results = file.path(base,'results','jwork')
+cell.types <- unique(dat_p@meta.data$general_cell_type)
+##PBMC LOOP SETUP 2  
+use.tags <- c( 'PFS.6month','treatment', 'timepoint') # 'treatment', 'timepoint',
+test <- 'MAST'
+log.name <- "avg_log2FC"
+p.name <- 'p_val_adj'
+p = 0.001
+log_threshes = c(1, 1.5)
+save.filtered <- TRUE
+width = 8
+height = 6
+v=3
+suppressWarnings({
+    out.gene.lists <- file.path(results,sprintf('DEG_contrasts_PBMC_%s_v%d',test,v),'csv')
+    dir.create(out.gene.lists,recursive = TRUE)
+    filt.out.gene.lists <- file.path(results,sprintf('DEG_contrasts_PBMC_%s_v%d',test,v),'filtered_csv')
+    dir.create(filt.out.gene.lists,recursive = TRUE)
+    out.de.volcano <- file.path(results,sprintf('DEG_contrasts_PBMC_%s_v%d',test,v),'volcano')
+    dir.create(out.de.volcano,recursive=TRUE)
+    out.de.heatmap <- file.path(results,sprintf('DEG_contrasts_PBMC_%s_v%d',test,v),'heatmap')
+    dir.create(out.de.heatmap,recursive=TRUE)
+})
+plot.volc <- TRUE
+plot.heat <- TRUE
+min.pct <- 0.03
+min.cells.feat = 20
+tissue.types <- c('PBMC')
+treatments <- c('rela', 'nivo', 'combo')
+timepoints <- c('Baseline','Week4')
+PFS.6month <- c('Prg6M','NoPrg6M')
+```
+```{r}
+### NOT NEEDED, USED FOR DIAGNOSTICS
+# Run outside heatmap.plot to identify the correct assay
+cat("Assay names:", paste(Assays(sub), collapse=", "), "\n")
+cat("RNA nrow:", nrow(sub[["RNA"]]), "\n")
+cat("First 5 RNA rownames:", paste(head(rownames(sub[["RNA"]]), 5), collapse=", "), "\n")
+
+# Check if genes are in a different assay
+for (assay_name in Assays(sub)) {
+  n_match <- sum(use.genes %in% rownames(sub[[assay_name]]))
+  cat(assay_name, "matches:", n_match, "/", length(use.genes), "\n")
+}
+```
+```{r}
+#PBMC LOOP
+system.time({
+for (log_thresh in log_threshes){
+for (time in timepoints){
+for (tag in use.tags){
+
+    # --- Define idents ---
+    if (tag == 'PFS.6month'){
+      idents <- c('NoPrg6M','Prg6M')
+    } else if (tag == 'timepoint'){
+      idents <- c('Week4','Baseline')
+    } else if (tag == 'treatment'){
+      idents <- c('combo','rela','nivo')
+    } else {
+      idents <- c('yes','no')
+    }
+
+    # --- Define pairwise contrasts ---
+    if (tag == 'treatment'){
+      contrast.pairs <- list(c('combo','rela'), c('combo','nivo'), c('rela','nivo'))
+    } else {
+      contrast.pairs <- list(idents[1:2])
+    }
+
+    # --- Timepoint subsetting: skip redundant iterations when tag == 'timepoint' ---
+    if (tag == 'timepoint'){
+      if (time != timepoints[1]) next  # run only once across time loop
+      time.sub <- dat_p                # keep all timepoints for comparison
+    } else {
+      time.sub <- subset(dat_p, subset = timepoint == time)
+    }
+
+    comp.sub <- subset(time.sub, subset = !!sym(tag) %in% idents)
+
+    for (tissue in tissue.types){
+      tissue.sub <- subset(comp.sub, subset = sample_type == tissue)
+
+      for (trt in treatments){
+
+        # --- Treatment subsetting: skip redundant iterations when tag == 'treatment' ---
+        if (tag == 'treatment'){
+          if (trt != treatments[1]) next
+          treat.sub <- tissue.sub
+        } else {
+          treat.sub <- subset(tissue.sub, subset = treatment == trt)
+        }
+
+        for (cell in cell.types){
+
+          if (ncol(treat.sub) == 0){
+            message('Skipping: no cells for trt=', trt, ' tissue=', tissue, ' tag=', tag)
+            next
+          }
+
+          if (cell != 'all.cells'){
+            sub <- suppressWarnings(subset(treat.sub, subset = general_cell_type == cell))
+          } else {
+            sub <- treat.sub
+          }
+
+          if (ncol(sub) == 0){
+            message('Skipping: no cells for cell=', cell)
+            next
+          }
+
+          DefaultAssay(sub) <- "RNA"
+          Idents(sub) <- tag
+
+          # --- Title ---
+          if (tag == 'PFS.6month'){
+            title = sprintf('NoPrg6m vs Prg6M, %s DEGs', cell)
+          } else if (tag == 'timepoint'){
+            title = sprintf('Week4 vs Baseline, %s DEGs', cell)
+          } else if (tag == 'treatment'){
+            title = sprintf('Treatment comparisons, %s DEGs', cell)
+          } else {
+            title = sprintf('yes vs no, %s DEGs', cell)
+          }
+          title = paste(tissue, title)
+
+          for (pair in contrast.pairs){
+            ident.1 <- pair[1]
+            ident.2 <- pair[2]
+
+            # --- Guard: both idents must exist in subset ---
+            available.idents <- unique(as.character(sub[[tag]][,1]))
+            if (!ident.1 %in% available.idents || !ident.2 %in% available.idents){
+              message('Skipping: missing ident. Need: ', ident.1, ' and ', ident.2,
+                      '. Found: ', paste(available.idents, collapse=', '))
+              next
+            }
+
+            if (tag == 'treatment'){
+              title = paste(tissue, sprintf('%s vs %s, %s DEGs', ident.1, ident.2, cell))
+            }
+
+            # --- For timepoint tag, use 'all' as time label in filename ---
+            time.label <- if (tag == 'timepoint') 'alltime' else time
+            trt.label  <- if (tag == 'treatment') 'alltrt'  else trt
+
+            contrast.str <- paste0(time.label,'.',trt.label,'.',tissue,'.',
+                                   tag,'.',ident.1,'.vs.',ident.2)
+            base.fn <- sprintf('%s.%s.DEG.p%1.3f.log.%1.1f.%s.%d.minpct.v%d',
+                               contrast.str, cell, p, log_thresh, test, min.pct*100, v)
+            base.fn <- stringr::str_replace_all(base.fn, ' ', '.')
+            fn <- paste0(base.fn, '.csv')
+
+            if (file.exists(file.path(out.gene.lists, fn))){
+              print(paste('Loading', fn))
+              de <- read.csv(file.path(out.gene.lists, fn), row.names=1)
+            } else {
+              print(paste('Generating', fn))
+              markers <- tryCatch({
+                FindMarkers(object = sub,
+                            ident.1 = ident.1,
+                            ident.2 = ident.2,
+                            base = 2,
+                            min.pct = min.pct,
+                            min.cells.feature = min.cells.feat,
+                            min.cells.group = 50,
+                            test.use = 'MAST')
+              }, error = function(e){
+                message('FindMarkers failed for ', contrast.str, ': ', e$message)
+                return(NULL)
+              })
+
+              if (is.null(markers) || nrow(markers) == 0){
+                message('No markers found for ', contrast.str, ', skipping')
+                next
+              }
+
+              de <- markers
+              de$Gene <- row.names(markers)
+              de$log2FC <- de[[log.name]]
+              max_fc <- 100
+              de <- de %>%
+                mutate(
+                  log2FC = case_when(
+                    log2FC == Inf    ~ max_fc,
+                    log2FC > max_fc  ~ max_fc,
+                    log2FC < -max_fc ~ -max_fc,
+                    log2FC == -Inf   ~ -max_fc,
+                    TRUE             ~ log2FC
+                  )
+                ) %>%
+                filter(!is.na(p_val_adj))
+
+              de$p.adj <- de[[p.name]]
+              de$diffexpressed <- "NO"
+              de$diffexpressed[de$log2FC > log_thresh  & de$p.adj < p] <- "UP"
+              de$diffexpressed[de$log2FC < -log_thresh & de$p.adj < p] <- "DOWN"
+              de$diffexpressed <- as.character(de$diffexpressed)
+              de$delabel <- NA
+              de$delabel[de$diffexpressed != "NO"] <- de$Gene[de$diffexpressed != "NO"]
+              de <- de %>% arrange(-log2FC, p_val_adj)
+              de$contrast <- contrast.str
+
+              write.csv(de, file.path(out.gene.lists, fn))
+            }
+
+            if (save.filtered){
+              filt.de <- de %>% filter(diffexpressed %in% c('UP','DOWN'))
+              fn.filt <- paste0('filt.', base.fn, '.csv')
+              write.csv(filt.de, file.path(filt.out.gene.lists, fn.filt))
+            }
+
+            if (plot.volc){
+              p1 <- volcano.plot(de, p, log_thresh, title)
+              save.figs(p1, out.de.volcano, base.fn, width=width, height=height)
+            }
+
+            if (plot.heat){
+  if (cell == 'all.cells'){ ds.pt <- 10;  ndeg <- 10
+  } else {                  ds.pt <- 200; ndeg <- 15 }
+
+  p2 <- tryCatch({
+    heatmap.plot(de, sub, title, plot.tag = tag,
+                 ndeg_top_bottom = ndeg, p.thresh = p,
+                 ds.pt = ds.pt)
+  }, error = function(e) {
+    warning("heatmap.plot error for ", base.fn, ": ", e$message)
+    NA
+  })
+
+  # FIX: check class — pheatmap returns a list, NA returns logical
+  if (is.list(p2)) {
+    save.figs(p2, out.de.heatmap, base.fn, width=10, height=5)
+  } else {
+    print(paste('Too few genes for heatmap:', base.fn))
+  }
+}
+
+          } # end pair loop
+        } # end cell loop
+      } # end trt loop
+    } # end tissue loop
+} # end tag loop  ← moved inside time loop so tag is defined before time.sub logic
+} # end time loop
+} # end log_thresh loop
+}) # end system.time
+
+
+```
+```{r}
+# Annotation color generator
+ann.colors <- function(annotation_col, sub) {
+  color_map <- list(
+    PFS.6month        = c("NoPrg6M"       = "coral",       "Prg6M"         = "slateblue"),
+    timepoint         = c("Baseline"       = "grey90",      "Week4"         = "hotpink1",  "Week12.or.16" = "purple"),
+    treatment         = c("combo"          = "grey60",      "nivo"          = "cyan",      "rela"         = "magenta"),
+    general_cell_type = c("CD8plus.T.cell" = "yellowgreen", "Macrophages"   = "violet",    "Treg"         = "#FDC086")
+  )
+
+  present_tags <- colnames(annotation_col)
+  matched      <- intersect(present_tags, names(color_map))
+  unmatched    <- setdiff(present_tags, names(color_map))
+
+  if (length(unmatched) > 0)
+    warning("No color definition for tag(s), pheatmap will auto-color: ",
+            paste(unmatched, collapse = ", "))
+
+  result <- list()
+  for (tag in matched) {
+    actual_levels <- unique(as.character(annotation_col[[tag]]))
+    actual_levels <- actual_levels[!is.na(actual_levels)]
+    defined       <- color_map[[tag]]
+
+    missing_levels <- setdiff(actual_levels, names(defined))
+    if (length(missing_levels) > 0)
+      warning("Tag '", tag, "' levels in data not in color definition: ",
+              paste(missing_levels, collapse = ", "))
+
+    # FIX: only keep color entries for levels that actually appear in the data
+    result[[tag]] <- defined[intersect(names(defined), actual_levels)]
+  }
+
+  result
+}
+
+# pheatmap wrapper
+pheatmap.wrapper <- function(lognorm.dat, annotation_col, ann_colors, title,
+                             cluster_rows = TRUE,
+                             cluster_cols = FALSE) {
+  pheatmap::pheatmap(
+    lognorm.dat,
+    main              = title,
+    scale             = "none",
+    annotation_col    = annotation_col,
+    annotation_colors = ann_colors,
+    clustering_method = "complete",
+    cluster_rows      = cluster_rows,
+    cluster_cols      = cluster_cols,
+    color             = colorRampPalette(c("navy", "white", "firebrick3"))(100),
+    show_colnames     = FALSE,
+    show_rownames     = TRUE
+  )
+}
+
+# Manual row-scaling
+row.scale <- function(mat) {
+  t(apply(mat, 1, function(x) {
+    s <- sd(x, na.rm = TRUE)
+    if (is.na(s) || s == 0) return(rep(0, length(x)))
+    (x - mean(x, na.rm = TRUE)) / s
+  }))
+}
+
+# Main heatmap function
+heatmap.plot <- function(de, sub, title, ds.pt = 100,
+                         ndeg_top_bottom = 15,
+                         p.thresh        = 0.05,
+                         plot.tag        = c('PFS.6month', 'timepoint', 'treatment', 'general_cell_type')) {
+
+  DefaultAssay(sub) <- "RNA"
+  Idents(sub)       <- 'general_cell_type'
+  suppressWarnings({ sub <- subset(sub, downsample = ds.pt) })
+
+  missing_tags <- setdiff(plot.tag, colnames(sub@meta.data))
+  if (length(missing_tags) > 0)
+    warning("plot.tag(s) not found in metadata and skipped: ",
+            paste(missing_tags, collapse = ", "))
+
+  # FIX: keep as character, not factor — pheatmap handles its own factor conversion
+  annotation_col <- sub@meta.data %>%
+    select(any_of(plot.tag)) %>%
+    mutate(across(everything(), as.character)) %>%
+    as.data.frame()
+
+  # FIX: build ann_colors from actual annotation_col after subsetting
+  ann_colors <- ann.colors(annotation_col, sub)
+
+  top    <- de %>% filter(p_val_adj < p.thresh, avg_log2FC >  0) %>% top_n(ndeg_top_bottom, wt =  avg_log2FC)
+  bottom <- de %>% filter(p_val_adj < p.thresh, avg_log2FC <  0) %>% top_n(ndeg_top_bottom, wt = -avg_log2FC)
+
+  use.genes <- unique(rbind(top, bottom)$Gene)
+
+  if (length(use.genes) <= 1) {
+    warning("Fewer than 2 DEGs passed filters for: ", title)
+    return(NA)
+  }
+
+  available.genes <- intersect(use.genes, rownames(sub[["RNA"]]))
+  if (length(available.genes) < length(use.genes))
+    warning("Some genes not found in RNA assay and dropped: ",
+            paste(setdiff(use.genes, available.genes), collapse = ", "))
+
+  lognorm.dat <- as.matrix(
+    GetAssayData(sub, assay = "RNA", slot = "data")[available.genes,
+                                                    row.names(annotation_col),
+                                                    drop = FALSE]
+  )
+
+  # Guard 1: Inf/-Inf → NA
+  lognorm.dat[is.infinite(lognorm.dat)] <- NA
+
+  # Guard 2: drop all-NA rows
+  all.na.rows <- apply(lognorm.dat, 1, function(x) all(is.na(x)))
+  if (any(all.na.rows)) {
+    warning("Dropping ", sum(all.na.rows), " gene(s) with all-NA expression")
+    lognorm.dat <- lognorm.dat[!all.na.rows, , drop = FALSE]
+  }
+
+  # Guard 3: impute remaining NAs with row mean
+  lognorm.dat <- t(apply(lognorm.dat, 1, function(x) {
+    x[is.na(x)] <- mean(x, na.rm = TRUE)
+    x
+  }))
+
+  # Guard 4: drop zero/NA variance columns
+  col.var       <- apply(lognorm.dat, 2, var)
+  zero.var.cols <- is.na(col.var) | col.var == 0
+  if (any(zero.var.cols)) {
+    warning("Dropping ", sum(zero.var.cols), " cell(s) with zero/NA variance")
+    lognorm.dat    <- lognorm.dat[, !zero.var.cols, drop = FALSE]
+    annotation_col <- annotation_col[!zero.var.cols, , drop = FALSE]
+  }
+
+  # Guard 5: manual row scaling
+  lognorm.dat <- row.scale(lognorm.dat)
+
+  # Guard 6: final dimension and value check
+  if (nrow(lognorm.dat) <= 1 || ncol(lognorm.dat) <= 1) {
+    warning("Too few genes/cells remain after cleaning for: ", title)
+    return(NA)
+  }
+
+  if (any(is.nan(lognorm.dat)) || any(is.infinite(lognorm.dat))) {
+    warning("NaN/Inf remain after cleaning, skipping heatmap for: ", title)
+    return(NA)
+  }
+
+  pheatmap.wrapper(lognorm.dat, annotation_col, ann_colors, title)
+}
+```
+```{r}
+# Temporary diagnostic wrapper — run this instead of heatmap.plot once to see what's happening
+heatmap.plot.debug <- function(de, sub, title, ds.pt = 100,
+                               ndeg_top_bottom = 15,
+                               p.thresh        = 0.05,
+                               plot.tag        = c('PFS.6month', 'timepoint', 'treatment', 'general_cell_type')) {
+
+  DefaultAssay(sub) <- "RNA"
+  Idents(sub)       <- 'general_cell_type'
+  suppressWarnings({ sub <- subset(sub, downsample = ds.pt) })
+
+  annotation_col <- sub@meta.data %>%
+    select(any_of(plot.tag)) %>%
+    mutate(across(everything(), as.character)) %>%
+    as.data.frame()
+
+  cat("\n=== annotation_col columns ===\n")
+  print(colnames(annotation_col))
+
+  cat("\n=== unique values per column ===\n")
+  for (col in colnames(annotation_col)) {
+    cat(col, ":", paste(unique(annotation_col[[col]]), collapse = ", "), "\n")
+  }
+
+  cat("\n=== ann_colors keys and levels ===\n")
+  ac <- ann.colors(annotation_col, sub)
+  for (nm in names(ac)) {
+    cat(nm, ":", paste(names(ac[[nm]]), collapse = ", "), "\n")
+  }
+
+  cat("\n=== colnames match names(ann_colors)? ===\n")
+  cat("annotation_col cols:", paste(colnames(annotation_col), collapse=", "), "\n")
+  cat("ann_colors names:   ", paste(names(ac), collapse=", "), "\n")
+  cat("Match:", identical(sort(colnames(annotation_col)), sort(names(ac))), "\n")
+}
+
+# Call on the specific tag/sub combination that's failing
+heatmap.plot.debug(de, sub, title, plot.tag = tag)
+```
+```{r}
+#### BEST HEATMAP.PLOT FUNCTION
+# Annotation color generator
+ann.colors <- function(annotation_col) {  # removed 'sub' — not needed
+  color_map <- list(
+    PFS.6month        = c("NoPrg6M"       = "coral",       "Prg6M"         = "slateblue"),
+    timepoint         = c("Baseline"       = "grey90",      "Week4"         = "hotpink1",  "Week12.or.16" = "purple"),
+    treatment         = c("combo"          = "grey60",      "nivo"          = "cyan",      "rela"         = "magenta"),
+    general_cell_type = c("CD8plus.T.cell" = "yellowgreen", "Macrophages"   = "violet",    "Treg"         = "#FDC086")
+  )
+
+  result <- list()
+  for (col in colnames(annotation_col)) {
+    if (!col %in% names(color_map)) next
+    actual_levels <- unique(as.character(annotation_col[[col]]))
+    actual_levels <- actual_levels[!is.na(actual_levels)]
+    defined       <- color_map[[col]]
+    # Only keep colors for levels present in data; warn on any missing
+    missing_levels <- setdiff(actual_levels, names(defined))
+    if (length(missing_levels) > 0)
+      warning("Tag '", col, "' has uncolored levels: ",
+              paste(missing_levels, collapse = ", "))
+    result[[col]] <- defined[names(defined) %in% actual_levels]
+  }
+  result
+}
+
+# pheatmap wrapper
+pheatmap.wrapper <- function(lognorm.dat, annotation_col, ann_colors, title,
+                             cluster_rows = TRUE,
+                             cluster_cols = FALSE) {
+
+  # Convert each annotation column to factor with levels = exactly the
+  # keys present in ann_colors for that column (pheatmap requirement)
+  annotation_col <- as.data.frame(annotation_col)  # ensure plain data.frame
+  for (col in colnames(annotation_col)) {
+    vals <- as.character(annotation_col[[col]])
+    lvls <- if (col %in% names(ann_colors)) {
+      names(ann_colors[[col]])[names(ann_colors[[col]]) %in% unique(vals)]
+    } else {
+      sort(unique(vals))
+    }
+    annotation_col[[col]] <- factor(vals, levels = lvls)
+  }
+
+  # Pre-flight: verify keys match exactly before pheatmap sees them
+  ann_colors <- ann_colors[names(ann_colors) %in% colnames(annotation_col)]
+
+  tryCatch({
+    pheatmap::pheatmap(
+      lognorm.dat,
+      main              = title,
+      scale             = "none",
+      annotation_col    = annotation_col,
+      annotation_colors = ann_colors,
+      clustering_method = "complete",
+      cluster_rows      = cluster_rows,
+      cluster_cols      = cluster_cols,
+      color             = colorRampPalette(c("navy", "white", "firebrick3"))(100),
+      show_colnames     = FALSE,
+      show_rownames     = TRUE
+    )
+  }, error = function(e) {
+    warning("pheatmap failed with annotation_colors (", e$message, "). Retrying without colors.")
+    pheatmap::pheatmap(
+      lognorm.dat,
+      main              = title,
+      scale             = "none",
+      annotation_col    = annotation_col,
+      clustering_method = "complete",
+      cluster_rows      = cluster_rows,
+      cluster_cols      = cluster_cols,
+      color             = colorRampPalette(c("navy", "white", "firebrick3"))(100),
+      show_colnames     = FALSE,
+      show_rownames     = TRUE
+    )
+  })
+}
+
+# Manual row-scaling
+row.scale <- function(mat) {
+  t(apply(mat, 1, function(x) {
+    s <- sd(x, na.rm = TRUE)
+    if (is.na(s) || s == 0) return(rep(0, length(x)))
+    (x - mean(x, na.rm = TRUE)) / s
+  }))
+}
+
+# Main heatmap function
+heatmap.plot <- function(de, sub, title, ds.pt = 100,
+                         ndeg_top_bottom = 15,
+                         p.thresh        = 0.05,
+                         plot.tag        = c('PFS.6month', 'timepoint', 'treatment', 'general_cell_type')) {
+
+  DefaultAssay(sub) <- "RNA"
+  Idents(sub)       <- 'general_cell_type'
+  suppressWarnings({ sub <- subset(sub, downsample = ds.pt) })
+
+  missing_tags <- setdiff(plot.tag, colnames(sub@meta.data))
+  if (length(missing_tags) > 0)
+    warning("plot.tag(s) not found in metadata and skipped: ",
+            paste(missing_tags, collapse = ", "))
+
+  annotation_col <- sub@meta.data %>%
+    select(any_of(plot.tag)) %>%
+    mutate(across(everything(), as.character)) %>%
+    as.data.frame()
+
+  # Build colors from the actual annotation_col that will be passed to pheatmap
+  ann_colors <- ann.colors(annotation_col)
+
+  top    <- de %>% filter(p_val_adj < p.thresh, avg_log2FC >  0) %>% top_n(ndeg_top_bottom, wt =  avg_log2FC)
+  bottom <- de %>% filter(p_val_adj < p.thresh, avg_log2FC <  0) %>% top_n(ndeg_top_bottom, wt = -avg_log2FC)
+
+  use.genes <- unique(rbind(top, bottom)$Gene)
+
+  if (length(use.genes) <= 1) {
+    warning("Fewer than 2 DEGs passed filters for: ", title)
+    return(NA)
+  }
+
+  available.genes <- intersect(use.genes, rownames(sub[["RNA"]]))
+  if (length(available.genes) < length(use.genes))
+    warning("Some genes not found in RNA assay and dropped: ",
+            paste(setdiff(use.genes, available.genes), collapse = ", "))
+
+  lognorm.dat <- as.matrix(
+    GetAssayData(sub, assay = "RNA", slot = "data")[available.genes,
+                                                    row.names(annotation_col),
+                                                    drop = FALSE]
+  )
+
+  # Guard 1: Inf/-Inf → NA
+  lognorm.dat[is.infinite(lognorm.dat)] <- NA
+
+  # Guard 2: drop all-NA rows
+  all.na.rows <- apply(lognorm.dat, 1, function(x) all(is.na(x)))
+  if (any(all.na.rows)) {
+    warning("Dropping ", sum(all.na.rows), " gene(s) with all-NA expression")
+    lognorm.dat <- lognorm.dat[!all.na.rows, , drop = FALSE]
+  }
+
+  # Guard 3: impute remaining NAs with row mean
+  lognorm.dat <- t(apply(lognorm.dat, 1, function(x) {
+    x[is.na(x)] <- mean(x, na.rm = TRUE)
+    x
+  }))
+
+  # Guard 4: drop zero/NA variance columns and sync annotation_col
+  col.var       <- apply(lognorm.dat, 2, var)
+  zero.var.cols <- is.na(col.var) | col.var == 0
+  if (any(zero.var.cols)) {
+    warning("Dropping ", sum(zero.var.cols), " cell(s) with zero/NA variance")
+    lognorm.dat    <- lognorm.dat[, !zero.var.cols, drop = FALSE]
+    annotation_col <- annotation_col[!zero.var.cols, , drop = FALSE]
+  }
+
+  # Guard 5: manual row scaling
+  lognorm.dat <- row.scale(lognorm.dat)
+
+  # Guard 6: final dimension and value check
+  if (nrow(lognorm.dat) <= 1 || ncol(lognorm.dat) <= 1) {
+    warning("Too few genes/cells remain after cleaning for: ", title)
+    return(NA)
+  }
+
+  if (any(is.nan(lognorm.dat)) || any(is.infinite(lognorm.dat))) {
+    warning("NaN/Inf remain after cleaning, skipping heatmap for: ", title)
+    return(NA)
+  }
+
+  # Rebuild ann_colors after guard 4 may have changed annotation_col
+  ann_colors <- ann.colors(annotation_col)
+
+  pheatmap.wrapper(lognorm.dat, annotation_col, ann_colors, title)
+}
+```
+```{r}
+heatmap.plot <- function(de, sub, title, ds.pt = 100,
+                         ndeg_top_bottom = 15,
+                         p.thresh        = 0.05,
+                         plot.tag        = c('PFS.6month', 'timepoint', 'treatment', 'general_cell_type')) {
+
+  # --- Diagnostic: check de structure on entry ---
+  cat("\n--- heatmap.plot diagnostics ---\n")
+  cat("de cols:", paste(colnames(de), collapse=", "), "\n")
+  cat("nrow(de):", nrow(de), "\n")
+  cat("p_val_adj range:", range(de$p_val_adj, na.rm=TRUE), "\n")
+  cat("avg_log2FC range:", range(de$avg_log2FC, na.rm=TRUE), "\n")
+  cat("'Gene' col exists:", "Gene" %in% colnames(de), "\n")
+  cat("p.thresh used:", p.thresh, "\n")
+
+  # FIX: avg_log2FC in saved CSV may be stored under 'log2FC' after de$log2FC <- de[[log.name]]
+  # Harmonize: use whichever FC column exists
+  if (!"avg_log2FC" %in% colnames(de) && "log2FC" %in% colnames(de)) {
+    de$avg_log2FC <- de$log2FC
+    cat("Using 'log2FC' as avg_log2FC\n")
+  }
+
+  # FIX: p_val_adj in saved CSV may be stored under 'p.adj'
+  if (!"p_val_adj" %in% colnames(de) && "p.adj" %in% colnames(de)) {
+    de$p_val_adj <- de$p.adj
+    cat("Using 'p.adj' as p_val_adj\n")
+  }
+
+  top    <- de %>% filter(p_val_adj < p.thresh, avg_log2FC >  0) %>% top_n(ndeg_top_bottom, wt =  avg_log2FC)
+  bottom <- de %>% filter(p_val_adj < p.thresh, avg_log2FC <  0) %>% top_n(ndeg_top_bottom, wt = -avg_log2FC)
+
+  cat("top DEGs:", nrow(top), "| bottom DEGs:", nrow(bottom), "\n")
+
+  use.genes <- unique(rbind(top, bottom)$Gene)
+  cat("use.genes:", length(use.genes), "\n")
+
+  if (length(use.genes) <= 1) {
+    warning("Fewer than 2 DEGs passed filters for: ", title)
+    return(NA)
+  }
+
+  DefaultAssay(sub) <- "RNA"
+  Idents(sub)       <- 'general_cell_type'
+  suppressWarnings({ sub <- subset(sub, downsample = ds.pt) })
+
+  missing_tags <- setdiff(plot.tag, colnames(sub@meta.data))
+  if (length(missing_tags) > 0)
+    warning("plot.tag(s) not found in metadata and skipped: ",
+            paste(missing_tags, collapse = ", "))
+
+  annotation_col <- as.data.frame(
+    sub@meta.data[, intersect(plot.tag, colnames(sub@meta.data)), drop = FALSE]
+  )
+  annotation_col[] <- lapply(annotation_col, as.character)
+
+  available.genes <- intersect(use.genes, rownames(sub[["RNA"]]))
+  if (length(available.genes) < length(use.genes))
+    warning("Some genes not found in RNA assay and dropped: ",
+            paste(setdiff(use.genes, available.genes), collapse = ", "))
+
+  if (length(available.genes) <= 1) {
+    warning("Fewer than 2 available genes in RNA assay for: ", title)
+    return(NA)
+  }
+
+  lognorm.dat <- as.matrix(
+    GetAssayData(sub, assay = "RNA", slot = "data")[available.genes,
+                                                    rownames(annotation_col),
+                                                    drop = FALSE]
+  )
+
+  # Guard 1: Inf/-Inf → NA
+  lognorm.dat[is.infinite(lognorm.dat)] <- NA
+
+  # Guard 2: drop all-NA rows
+  all.na.rows <- apply(lognorm.dat, 1, function(x) all(is.na(x)))
+  if (any(all.na.rows)) {
+    warning("Dropping ", sum(all.na.rows), " gene(s) with all-NA expression")
+    lognorm.dat <- lognorm.dat[!all.na.rows, , drop = FALSE]
+  }
+
+  # Guard 3: impute remaining NAs with row mean
+  lognorm.dat <- t(apply(lognorm.dat, 1, function(x) {
+    x[is.na(x)] <- mean(x, na.rm = TRUE)
+    x
+  }))
+
+  # Guard 4: drop zero/NA variance columns — keep annotation_col in sync
+  col.var       <- apply(lognorm.dat, 2, var)
+  zero.var.cols <- is.na(col.var) | col.var == 0
+  if (any(zero.var.cols)) {
+    warning("Dropping ", sum(zero.var.cols), " cell(s) with zero/NA variance")
+    lognorm.dat    <- lognorm.dat[, !zero.var.cols, drop = FALSE]
+    annotation_col <- as.data.frame(annotation_col[!zero.var.cols, , drop = FALSE])
+  }
+
+  # Guard 5: manual row scaling
+  lognorm.dat <- row.scale(lognorm.dat)
+
+  # Guard 6: final dimension and value check
+  if (nrow(lognorm.dat) <= 1 || ncol(lognorm.dat) <= 1) {
+    warning("Too few genes/cells remain after cleaning for: ", title)
+    return(NA)
+  }
+
+  if (any(is.nan(lognorm.dat)) || any(is.infinite(lognorm.dat))) {
+    warning("NaN/Inf remain after cleaning, skipping heatmap for: ", title)
+    return(NA)
+  }
+
+  ann_colors <- ann.colors(annotation_col)
+
+  pheatmap.wrapper(lognorm.dat, annotation_col, ann_colors, title)
+}
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
