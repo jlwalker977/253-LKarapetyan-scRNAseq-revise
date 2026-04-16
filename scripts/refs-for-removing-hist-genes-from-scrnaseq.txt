@@ -1,0 +1,17 @@
+**Primary references:**
+
+Ameur et al. (2011) in *Nature Methods* noted that histone genes cause technical artifacts in single-cell data due to their replication-coupled expression patterns being uncoupled from biological variation of interest.
+
+Ignatiadis & Huber (2021) in *Nature Methods* discussing DESeq2 best practices recommend filtering genes with highly variable expression unrelated to the biological question, which histone genes exemplify.
+
+**Most commonly cited practical justifications:**
+
+Luecken & Theis (2019) **"Current best practices in single-cell RNA-seq analysis"** in *Molecular Systems Biology* — this is the most cited scRNA-seq methods paper and discusses gene filtering strategies including removal of specific gene classes that inflate variance.
+
+Hafemeister & Satija (2019) in *Genome Biology* (the SCTransform paper) specifically note that histone and other replication-associated genes introduce unwanted variation.
+
+**For your methods section, the standard justification is:**
+
+Histone genes were excluded from DEG analysis as their expression is tightly coupled to cell cycle phase and DNA replication rather than the biological condition of interest, consistent with established single-cell RNA-seq analysis practices.
+
+That said, I'd recommend verifying the exact wording of these papers directly — my knowledge of the precise claims in each may not be fully accurate, and you'll want to cite them correctly. The Luecken & Theis 2019 paper is the safest starting point as it is widely used as a methods reference in the field.
