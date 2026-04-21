@@ -298,3 +298,122 @@ print(shared_consistent)
 ```
 
 These shared genes represent biology that is **detectable in both the tumor and periphery** — the strongest candidates for biomarker development or mechanistic follow-up.
+
+
+DOUBLETS
+Based on what you showed me in both feature plots, here's my honest assessment:
+
+---
+
+## Short Answer — Partially, But Probably Not Completely
+
+---
+
+## What Doublet Removal Would Fix
+
+| Issue | Doublet removal helps? |
+|-------|----------------------|
+| B+T cell doublets causing B cell markers in T cell cluster | ✅ Yes — these are real doublets |
+| Cells co-expressing CD3 + CD79A | ✅ Yes — hallmark doublet signature |
+| Inflated cluster sizes from merged droplets | ✅ Yes |
+
+---
+
+## What Doublet Removal Would NOT Fix
+
+| Issue | Why doublets aren't the cause |
+|-------|-------------------------------|
+| **Ambient RNA** from lysed B cells | Lysed cells release mRNA into the droplet soup — affects all cells regardless of doublets |
+| **IGHG1 scattered expression** | Immunoglobulin transcripts are among the most abundant ambient RNA sources in PBMC — notorious for this |
+| **Low-level MS4A1/CD79A in T cells** | If expression is very low and diffuse, it's ambient not doublets |
+
+---
+
+## How to Distinguish Doublets vs Ambient RNA
+
+```r
+# 1. Check co-expression — doublets show HIGH expression of BOTH lineages
+#    Ambient RNA shows LOW scattered expression of one lineage
+
+FeaturePlot(seurat_obj,
+            features = c("CD3D", "CD79A"),
+            blend = TRUE,           # co-expressing cells shown in third color
+            blend.threshold = 0.3)
+
+# Rule:
+# HIGH CD3D + HIGH CD79A in same cell = doublet
+# HIGH CD3D + LOW CD79A              = ambient RNA
+```
+
+```r
+# 2. Check nCount and nFeature — doublets have abnormally high counts
+VlnPlot(seurat_obj,
+        features = c("nCount_RNA", "nFeature_RNA"),
+        group.by = "seurat_clusters")
+
+# Doublet clusters typically show:
+# nCount_RNA ~2x the median of other clusters
+```
+
+```r
+# 3. Run DoubletFinder to formally score doublets
+library(DoubletFinder)
+
+# Estimate expected doublet rate (~0.8% per 1000 cells captured)
+nExp <- round(0.08 * ncol(seurat_obj))
+
+seurat_obj <- doubletFinder(seurat_obj,
+                             PCs = 1:20,
+                             pN = 0.25,
+                             pK = 0.09,
+                             nExp = nExp)
+
+# Visualize doublet calls
+DimPlot(seurat_obj, group.by = "DF.classifications")
+```
+
+```r
+# 4. Run SoupX for ambient RNA correction
+library(SoupX)
+
+# Load raw and filtered counts
+sc <- SoupChannel(tod = raw_counts,   # unfiltered/raw matrix
+                  toc = filt_counts)  # filtered matrix
+
+sc    <- setClusters(sc, clusters)
+sc    <- autoEstCont(sc)
+clean <- adjustCounts(sc)
+
+# Replace counts in Seurat object
+seurat_obj[["RNA"]]@counts <- clean
+```
+
+---
+
+## What to Expect After Each Approach
+
+| Approach | Effect on B cell markers in T cell cluster |
+|----------|--------------------------------------------|
+| **DoubletFinder** | Removes ~10-20% of B cell scatter — only true doublets |
+| **SoupX ambient correction** | Removes diffuse low-level IGHG1/MS4A1 scatter significantly |
+| **Both together** | Best result — removes doublets AND ambient signal |
+| Neither | B cell markers remain in T cell cluster |
+
+---
+
+## PBMC vs TIL Expectation After Cleaning
+
+| | PBMC | TIL |
+|--|------|-----|
+| Main issue | Ambient IGHG1 + some doublets | Small real B cell population |
+| After DoubletFinder | Modest improvement | Minor change |
+| After SoupX | **Large improvement** — IGHG1 scatter should largely disappear | Small improvement |
+| B cells expected? | Small population should remain | Small focal cluster should persist |
+
+---
+
+## Bottom Line
+
+For **PBMC** — SoupX ambient correction is more important than doublet removal because IGHG1 ambient RNA is the dominant issue, not doublets.
+
+For **TIL** — the focal MS4A1/CD79A cluster you saw is likely **real tumor-infiltrating B cells**, which are biologically meaningful in the tumor microenvironment and should not be removed. Doublet removal will not and should not eliminate that signal.
