@@ -1,0 +1,151 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r,decontx run}
+library(celda)
+library(Seurat)
+library(SingleCellExperiment)
+library(patchwork)
+
+# ════════════════════════════════════════════════════════════════════════════
+# STEP 1: Run decontX
+# ════════════════════════════════════════════════════════════════════════════
+
+sce <- as.SingleCellExperiment(seurat_obj)
+
+sce <- decontX(
+  sce,
+  z = seurat_obj$seurat_clusters
+)
+
+# Transfer contamination scores back
+seurat_obj$decontX_contamination <- sce$decontX_contamination
+
+# Add decontaminated counts as new assay
+seurat_obj[["decontX"]] <- CreateAssayObject(counts = round(decontXcounts(sce)))
+
+cat("decontX complete\n")
+cat("Median contamination score:", median(seurat_obj$decontX_contamination), "\n")
+
+# ════════════════════════════════════════════════════════════════════════════
+# STEP 2: Visualize contamination before removal
+# ════════════════════════════════════════════════════════════════════════════
+
+# Contamination score on UMAP
+p_cont <- FeaturePlot(seurat_obj,
+                       features = "decontX_contamination",
+                       cols     = c("lightgrey", "red")) +
+           ggtitle("DecontX Contamination Score")
+
+# B cell markers before cleaning — using RAW counts
+DefaultAssay(seurat_obj) <- "RNA"
+p_before <- FeaturePlot(seurat_obj,
+                         features = c("MS4A1", "CD79A"),
+                         ncol     = 2) &
+             ggtitle("Before decontX")
+
+# B cell markers after decontX — using CLEAN counts
+DefaultAssay(seurat_obj) <- "decontX"
+p_after <- FeaturePlot(seurat_obj,
+                        features = c("MS4A1", "CD79A"),
+                        ncol     = 2) &
+            ggtitle("After decontX")
+
+print(p_cont)
+print(p_before / p_after)
+
+# ════════════════════════════════════════════════════════════════════════════
+# STEP 3: Remove MS4A1+ CD79A+ cells using DECONTAMINATED counts
+# ════════════════════════════════════════════════════════════════════════════
+
+# Use decontX assay for cell calling — cleaner signal
+DefaultAssay(seurat_obj) <- "decontX"
+
+ms4a1_counts <- GetAssayData(seurat_obj,
+                              assay = "decontX",
+                              slot  = "counts")["MS4A1", ]
+
+cd79a_counts <- GetAssayData(seurat_obj,
+                              assay = "decontX",
+                              slot  = "counts")["CD79A", ]
+
+# Flag true B cells: co-expressing both markers
+is_bcell <- ms4a1_counts > 0 & cd79a_counts > 0
+
+cat("\nCells flagged as B cells (MS4A1+ CD79A+):", sum(is_bcell), "\n")
+cat("Percentage of total: ", round(mean(is_bcell) * 100, 2), "%\n")
+
+# Keep non-B cells
+cells_keep <- names(is_bcell)[!is_bcell]
+seurat_obj_clean <- subset(seurat_obj, cells = cells_keep)
+
+cat("\nCells before removal:", ncol(seurat_obj),       "\n")
+cat("Cells after removal: ", ncol(seurat_obj_clean), "\n")
+cat("Total removed:       ", ncol(seurat_obj) - ncol(seurat_obj_clean), "\n")
+
+# ════════════════════════════════════════════════════════════════════════════
+# STEP 4: Set RNA as default and renormalize
+# ════════════════════════════════════════════════════════════════════════════
+
+DefaultAssay(seurat_obj_clean) <- "RNA"
+seurat_obj_clean <- NormalizeData(seurat_obj_clean)
+seurat_obj_clean <- FindVariableFeatures(seurat_obj_clean)
+seurat_obj_clean <- ScaleData(seurat_obj_clean)
+
+# ════════════════════════════════════════════════════════════════════════════
+# STEP 5: Confirm B cell markers are gone
+# ════════════════════════════════════════════════════════════════════════════
+
+DefaultAssay(seurat_obj_clean) <- "RNA"
+
+p_final <- FeaturePlot(seurat_obj_clean,
+                        features = c("MS4A1", "CD79A", "IGHG1", "CD27"),
+                        ncol     = 2) &
+            ggtitle("After B cell removal")
+
+p_umap <- DimPlot(seurat_obj_clean,
+                   group.by = "seurat_clusters",
+                   label    = TRUE) +
+           ggtitle("UMAP after B cell removal")
+
+print(p_final)
+print(p_umap)
+
+# ════════════════════════════════════════════════════════════════════════════
+# STEP 6: Save clean object
+# ════════════════════════════════════════════════════════════════════════════
+
+saveRDS(seurat_obj_clean, "seurat_obj_decontX_Bcell_removed.rds")
+cat("Saved: seurat_obj_decontX_Bcell_removed.rds\n")
+```
+```{r, decontx if merged obj}
+# If your object contains multiple samples — run decontX per sample
+sample_list <- SplitObject(seurat_obj, split.by = "Patient.Number")
+
+sample_list <- lapply(sample_list, function(s) {
+
+  # decontX per sample
+  sce_s <- as.SingleCellExperiment(s)
+  sce_s <- decontX(sce_s, z = s$seurat_clusters)
+  s$decontX_contamination <- sce_s$decontX_contamination
+  s[["decontX"]] <- CreateAssayObject(counts = round(decontXcounts(sce_s)))
+
+  # Remove B cells per sample using decontX counts
+  ms4a1 <- GetAssayData(s, assay = "decontX", slot = "counts")["MS4A1", ]
+  cd79a <- GetAssayData(s, assay = "decontX", slot = "counts")["CD79A", ]
+  keep  <- names(ms4a1)[!(ms4a1 > 0 & cd79a > 0)]
+
+  cat("Sample", unique(s$sample_id),
+      "| removed:", ncol(s) - length(keep),
+      "| remaining:", length(keep), "\n")
+
+  subset(s, cells = keep)
+})
+
+# Re-merge
+seurat_obj_clean <- merge(sample_list[[1]], y = sample_list[-1])
+cat("Final cell count:", ncol(seurat_obj_clean), "\n")
+```

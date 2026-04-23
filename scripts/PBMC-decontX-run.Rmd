@@ -1,0 +1,38 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r, PBMC decontX}
+#dat_pmde1 = qread("dat-pbmc-correct-gen-celltypes-from-arjun-noDC-041526.qs")
+#sce_t = as.SingleCellExperiment(dat_tmde1)
+sce_p = as.SingleCellExperiment(dat_pmde1)
+#qsave(sce_t, file="sce-til-dat-t-obj-for-decont-doubletfinder.qs")
+qsave(sce_p, file="sce-pbmc-dat-p-obj-for-decont-doubletfinder.qs")
+```
+```{r}
+sce_p = decontX(sce_p, z=sce_p$gen_cell_types2)
+#DimPlot(sce_p, reduction = "decontX_clusters")
+dat_pmde1$decontX_contamination <- sce_p$decontX_contamination
+dat_pmde1[["decontX"]] <- CreateAssayObject(counts = round(decontXcounts(sce_p)))
+cat("decontX complete\n")
+cat("Median contamination score:", median(dat_pmde1$decontX_contamination), "\n")
+p_contp <- FeaturePlot(dat_pmde1,
+features = "decontX_contamination",
+cols     = c("grey90", "blueviolet")) +
+ggtitle("DecontX Contamination Score")
+p_contp
+sce_p = decontX(sce_p, z=sce_p$gen_cell_types2)
+dat_pmde1$decontX_contamination <- sce_p$decontX_contamination
+dat_pmde1[["decontX"]] <- CreateAssayObject(counts = round(decontXcounts(sce_p)))
+cat("decontX complete\n")
+cat("Median contamination score:", median(dat_pmde1$decontX_contamination), "\n")
+p_contp <- FeaturePlot(dat_pmde1,
+features = "decontX_contamination",
+cols     = c("grey90", "blueviolet")) +
+ggtitle("DecontX Contamination Score")
+p_contp
+pbmc_umap = DimPlot(dat_pmde1, label=TRUE)+NoLegend()
+pbmc_umap
+qsave(dat_pmde1, file="dat-pmde1-pbmc-post-decontx-pre-ms4a1-removal.qs")
+```

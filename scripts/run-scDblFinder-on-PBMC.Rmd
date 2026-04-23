@@ -1,0 +1,67 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+
+```{r, scDblFinder on PBMC}
+dat_pc4 = dat_pmde1_clean2
+library(scDblFinder)
+# ── Switch to scDblFinder — works natively with Seurat v5 ─────────────────
+library(scDblFinder)
+library(SingleCellExperiment)
+sample_list <- SplitObject(dat_pc4, split.by = "Patient.Number")
+sample_list <- lapply(sample_list, function(s) {
+cat("Processing sample:", unique(s$Patient.Number), "\n")
+# ── Convert to SingleCellExperiment ───────────────────────────────────────
+sce <- as.SingleCellExperiment(s)
+# ── Run scDblFinder ───────────────────────────────────────────────────────
+sce <- scDblFinder(sce)
+# ── Transfer results back to Seurat ───────────────────────────────────────
+s$scDblFinder.class  <- sce$scDblFinder.class   # "singlet" or "doublet"
+s$scDblFinder.score  <- sce$scDblFinder.score   # doublet probability 0-1
+cat("Doublets found:", sum(sce$scDblFinder.class == "doublet"), "\n")
+cat("Singlets kept:", sum(sce$scDblFinder.class == "singlet"), "\n\n")
+# ── Remove doublets ───────────────────────────────────────────────────────
+s_clean <- subset(s, subset = scDblFinder.class == "singlet")
+cat("Cells before:", ncol(s), "| after:", ncol(s_clean),
+"| removed:", ncol(s) - ncol(s_clean), "\n\n")
+return(s_clean)
+})
+# ── Re-merge ──────────────────────────────────────────────────────────────
+dat_pc4_clean <- merge(sample_list[[1]], y = sample_list[-1])
+cat("Final merged cell count:", ncol(dat_pc4_clean), "\n")
+# ── Visualize ─────────────────────────────────────────────────────────────
+FeaturePlot(dat_pc4_clean, features = "scDblFinder.score") +
+ggtitle("scDblFinder doublet score")
+# ── Re-process merged object after doublet removal ────────────────────────
+DefaultAssay(dat_pc4_clean) <- "RNA"
+dat_pc4_clean <- NormalizeData(dat_pc4_clean)
+dat_pc4_clean <- FindVariableFeatures(dat_pc4_clean)
+dat_pc4_clean <- ScaleData(dat_pc4_clean)
+dat_pc4_clean <- RunPCA(dat_pc4_clean)
+dat_pc4_clean <- RunUMAP(dat_pc4_clean, dims = 1:20)
+# ── Now visualize ─────────────────────────────────────────────────────────
+FeaturePlot(dat_pc4_clean, features = "scDblFinder.score") +
+ggtitle("scDblFinder doublet score")
+DimPlot(dat_pc4_clean,
+group.by = "scDblFinder.class",
+cols     = c("singlet" = "grey80", "doublet" = "red")) +
+ggtitle("scDblFinder doublet calls")
+# ── Check B cell markers after cleaning ───────────────────────────────────
+FeaturePlot(dat_pc4_clean,
+features = c("MS4A1", "CD79A", "IGHG1"),
+ncol     = 3)
+# ── Check cell type distribution preserved ────────────────────────────────
+DimPlot(dat_pc4_clean,
+group.by = "gen_cell_types2",
+label    = TRUE) +
+ggtitle("Cell types after doublet removal")
+qsave(dat_pc4_clean, "dat_pc4_doublets_removed.qs")
+cat("Saved: dat_pc4_doublets_removed.rds\n")
+
+```
+```{r, save}
+qsave()
+```
