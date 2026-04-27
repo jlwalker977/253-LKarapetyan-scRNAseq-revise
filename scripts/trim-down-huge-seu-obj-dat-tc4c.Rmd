@@ -1,0 +1,33 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+
+```{r}
+# ── Save just the metadata from the cleaned object ───────────────────────
+#meta_clean <- dat_tc4c@meta.data
+#write.csv(meta_clean, 
+          #file = "dat-til-redo-scdblfinder-metadata-042426.csv")
+meta_clean = read.csv("dat-til-redo-post-scdblfinder-042726.csv",row.names = 1)
+# ── Use barcodes to subset the original lighter object ───────────────────
+# (use whichever pre-doublet-removal object is smallest on disk)
+clean_barcodes <- rownames(meta_clean)
+
+dat_tmde1 = qread("dat-til-correct-gen-celltypes-from-arjun-noDC-041526.qs")
+
+dat_tc4_subset <- subset(dat_tmde1, cells = clean_barcodes)
+
+# ── Transfer the scDblFinder metadata columns ─────────────────────────────
+dat_tc4_subset$scDblFinder.class <- meta_clean[clean_barcodes, "scDblFinder.class"]
+dat_tc4_subset$scDblFinder.score <- meta_clean[clean_barcodes, "scDblFinder.score"]
+dat_tc4_subset$decontX_contamination <- meta_clean[clean_barcodes, "decontX_contamination"]
+
+cat("Cells in cleaned object:", ncol(dat_tc4_subset), "\n")
+
+qsave(dat_tc4_subset, 
+      file = "dat-til-redo-scdblfinder-doublets-removed-042426-light.qs")
+```
+
+
