@@ -1,0 +1,883 @@
+
+theme_classic(base_size = 12) +
+theme(plot.title = element_text(face = "bold"),
+panel.border = element_rect(colour = "grey70", fill = NA))
+print(p_celltype)
+print(p_pseudotime)
+ggsave("slingshot_celltype_til_mac_1umap.png", p_celltype, width = 7, height = 6, dpi = 200)
+ggsave("slingshot_pseudotime_til_mac_1umap.png", p_pseudotime, width = 7, height = 6, dpi = 200)
+message("Done.")
+#!/usr/bin/env Rscript
+# =============================================================================
+# Slingshot — single Seurat object, easy to troubleshoot
+# =============================================================================
+library(Seurat)
+library(slingshot)
+library(SingleCellExperiment)
+library(ggplot2)
+library(dplyr)
+library(viridis)
+library(qs)
+# =============================================================================
+# LOAD & CONVERT
+# =============================================================================
+#seu <- qread("dat-til-redo-downsample500-mac-subset.qs") # <- change as needed
+#sce <- as.SingleCellExperiment(seu)
+sce=sce_pd_mac
+CELL_TYPE_COL <- "cell_types2"
+PCA_DIMS <- 1:20
+pca_embed <- reducedDim(sce, "PCA")[, PCA_DIMS]
+umap_embed <- reducedDim(sce, "UMAP")
+cell_types <- colData(sce)[[CELL_TYPE_COL]]
+# Quick sanity checks
+message("Cell type counts:")
+print(table(cell_types))
+message(sprintf("PCA dims: %d x %d", nrow(pca_embed), ncol(pca_embed)))
+message(sprintf("UMAP dims: %d x %d", nrow(umap_embed), ncol(umap_embed)))
+# =============================================================================
+# RUN SLINGSHOT
+# =============================================================================
+sds <- slingshot(
+data = umap_embed,
+clusterLabels = cell_types,
+reducedDim = umap_embed,
+approx_points = 150,
+stretch = 0,
+extend = "n",
+start.clus = 'CD14plus_CD16minus_CD33minus'
+)
+message("Lineages detected:")
+print(slingLineages(sds))
+pt <- slingPseudotime(sds)
+n_lineages <- ncol(pt)
+curves <- slingCurves(sds)
+message(sprintf("Pseudotime matrix: %d cells x %d lineages", nrow(pt), n_lineages))
+message("Pseudotime range per lineage:")
+print(apply(pt, 2, range, na.rm = TRUE))
+# =============================================================================
+# PROJECT CURVES ONTO UMAP
+# =============================================================================
+project_curve_to_umap <- function(curve_coords, pca_ref, umap_ref, k = 5) {
+dists <- as.matrix(dist(rbind(curve_coords, pca_ref)))[
+seq_len(nrow(curve_coords)),
+seq(nrow(curve_coords) + 1, nrow(curve_coords) + nrow(pca_ref))
+]
+t(apply(dists, 1, function(d) {
+nn <- order(d)[seq_len(k)]
+w <- 1 / (d[nn] + 1e-10)
+colSums(umap_ref[nn, ] * w) / sum(w)
+}))
+}
+curve_df <- bind_rows(lapply(seq_len(n_lineages), function(i) {
+pts <- curves[[i]]$s[curves[[i]]$ord, ]
+umap_pts <- project_curve_to_umap(pts, umap_embed, umap_embed)
+data.frame(UMAP_1 = umap_pts[, 1], UMAP_2 = umap_pts[, 2],
+lineage = paste0("Lineage ", i))
+}))
+message("Curve data frame head:")
+print(head(curve_df))
+# =============================================================================
+# CELL DATA FRAME
+# =============================================================================
+cell_df <- data.frame(
+UMAP_1 = umap_embed[, 1],
+UMAP_2 = umap_embed[, 2],
+cell_type = cell_types,
+pseudotime = rowMeans(pt, na.rm = TRUE)
+)
+message("Cell data frame head:")
+print(head(cell_df))
+# =============================================================================
+# PLOTS
+# =============================================================================
+p_celltype <- ggplot(cell_df, aes(UMAP_1, UMAP_2)) +
+geom_point(aes(colour = cell_type), size = 0.7, alpha = 0.6) +
+geom_path(data = curve_df, aes(UMAP_1, UMAP_2, group = lineage),
+colour = "black", linewidth = 1.1, lineend = "round") +
+scale_colour_brewer(palette = "Set1", name = CELL_TYPE_COL) +
+labs(title = "PBMC Slingshot trajectory - Mac", x = "UMAP 1", y = "UMAP 2") +
+theme_classic(base_size = 12) +
+theme(plot.title = element_text(face = "bold"),
+panel.border = element_rect(colour = "grey70", fill = NA))
+p_pseudotime <- ggplot(cell_df, aes(UMAP_1, UMAP_2)) +
+geom_point(aes(colour = pseudotime), size = 0.7, alpha = 0.7) +
+scale_colour_viridis_c(option = "magma", name = "Pseudotime", na.value = "grey85") +
+geom_path(data = curve_df, aes(UMAP_1, UMAP_2, group = lineage),
+colour = "white", linewidth = 1.5, lineend = "round") +
+geom_path(data = curve_df, aes(UMAP_1, UMAP_2, group = lineage),
+colour = "grey20", linewidth = 0.6, lineend = "round", linetype = "dashed") +
+labs(title = "Pseudotime - PBMC mac", x = "UMAP 1", y = "UMAP 2") +
+theme_classic(base_size = 12) +
+theme(plot.title = element_text(face = "bold"),
+panel.border = element_rect(colour = "grey70", fill = NA))
+print(p_celltype)
+print(p_pseudotime)
+ggsave("slingshot_celltype_pbmc_mac_1umap.png", p_celltype, width = 7, height = 6, dpi = 200)
+ggsave("slingshot_pseudotime_pbmc_mac_1umap.png", p_pseudotime, width = 7, height = 6, dpi = 200)
+message("Done.")
+p_celltype <- ggplot(cell_df, aes(UMAP_1, UMAP_2)) +
+geom_point(aes(colour = cell_type), size = 0.7, alpha = 0.6) +
+geom_path(data = curve_df, aes(UMAP_1, UMAP_2, group = lineage),
+colour = "black", linewidth = 1.1, lineend = "round") +
+scale_colour_brewer(palette = "Set1", name = CELL_TYPE_COL) +
+labs(title = "PBMC Slingshot trajectory - Mac", x = "UMAP 1", y = "UMAP 2") +
+theme_classic(base_size = 12) +
+theme(plot.title = element_text(face = "bold"),
+panel.border = element_rect(colour = "grey70", fill = NA))
+p_celltype
+p_celltype <- ggplot(cell_df, aes(UMAP_1, UMAP_2)) +
+geom_point(aes(colour = cell_type), size = 1.5, alpha = 0.6) +
+geom_path(data = curve_df, aes(UMAP_1, UMAP_2, group = lineage),
+colour = "black", linewidth = 1.1, lineend = "round") +
+scale_colour_brewer(palette = "Set1", name = CELL_TYPE_COL) +
+labs(title = "PBMC Slingshot trajectory - Mac", x = "UMAP 1", y = "UMAP 2") +
+theme_classic(base_size = 12) +
+theme(plot.title = element_text(face = "bold"),
+panel.border = element_rect(colour = "grey70", fill = NA))
+p_celltype
+p_celltype <- ggplot(cell_df, aes(UMAP_1, UMAP_2)) +
+geom_point(aes(colour = cell_type), size = 3, alpha = 0.6) +
+geom_path(data = curve_df, aes(UMAP_1, UMAP_2, group = lineage),
+colour = "black", linewidth = 1.1, lineend = "round") +
+scale_colour_brewer(palette = "Set1", name = CELL_TYPE_COL) +
+labs(title = "PBMC Slingshot trajectory - Mac", x = "UMAP 1", y = "UMAP 2") +
+theme_classic(base_size = 12) +
+theme(plot.title = element_text(face = "bold"),
+panel.border = element_rect(colour = "grey70", fill = NA))
+p_celltype
+sds_pmac = slingshot(data=reducedDim(sce_pd_mac, "UMAP"), clusterLabels = sce_pd_mac$cell_types2, approx_points=150, stretch=0, extend="n", start.clus ='CD14plus_CD16minus_CD33minus')
+sds_pmac
+SlingshotDataSet(sds_pmac)
+library(grDevices)
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sce$slingPseudotime_1, breaks=100)]
+plot(reducedDims(sce)$PCA, col = plotcol, pch=16, asp = 1)
+plot(reducedDims(sce)$PCA, pch=16, asp = 1)
+lines(SlingshotDataSet(sce), lwd=2, col='black')
+plot(reducedDims(sds_pmac)$PCA, pch=16, asp = 1)
+plot(reducedDims(sds_pmac)$UMAP, pch=16, asp = 1)
+plot(sds_pmac$UMAP, pch=16, asp = 1)
+DimPlot(sds_pmac)
+DimPlot(sds_pmac, reduction="umap")
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sds_pmac$slingPseudotime_1, breaks=100)]
+head(sds_pmac)
+head(sds_pmac$slingPseudotime_1)
+(sds_pmac$slingPseudotime_1)
+sds_pmac = slingshot(data=sce_pd_mac, clusterLabels = sce_pd_mac$cell_types2, approx_points=150, stretch=0, extend="n", start.clus ='CD14plus_CD16minus_CD33minus')
+(sds_pmac$slingPseudotime_1)
+head(sds_pmac$slingPseudotime_1)
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sds_pmac$slingPseudotime_1, breaks=100)]
+plot(reducedDims(sds_pmac)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sds_pmac), lwd=2, col='black')
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sds_pmac$slingPseudotime_1, breaks=100)]
+plot(reducedDims(sds_pmac)$UMAP, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sds_pmac), lwd=2, col='black')
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sds_pmac$slingPseudotime_1, breaks=100)]
+plot(reducedDims(sds_pmac)$UMAP, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sds_pmac), lwd=2, col='black', lin=1)
+sds_pmac = slingshot(data=sce_pd_mac, clusterLabels = sce_pd_mac$cell_types2, start.clus ='CD14plus_CD16minus_CD33minus')
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sds_pmac$slingPseudotime_1, breaks=100)]
+plot(reducedDims(sds_pmac)$UMAP, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sds_pmac), lwd=2, col='black', lin=1)
+plot(reducedDims(sds_pmac)$UMAP, col = plotcol, pch=16, asp = 1)
+sds_pmac_pca = slingshot(data=sce_pd_mac, reducedDim(sce_pd_mac, "UMAP"), clusterLabels = sce_pd_mac$cell_types2, start.clus ='CD14plus_CD16minus_CD33minus')
+sds_pmac_pca = slingshot(data=sce_pd_mac, reducedDim(sce_pd_mac, "PCA"), clusterLabels = sce_pd_mac$cell_types2, start.clus ='CD14plus_CD16minus_CD33minus')
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sds_pmac$slingPseudotime_1, breaks=100)]
+plot(reducedDims(sds_pmac)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sds_pmac), lwd=2, col='black', lin=1)
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sds_pmac$slingPseudotime_1, breaks=100)]
+plot(reducedDims(sds_pmac)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sds_pmac), lwd=2, col='black')
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sds_pmac_pca$slingPseudotime_1, breaks=100)]
+plot(reducedDims(sds_pmac_pca)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sds_pmac_pca), lwd=2, col='black')
+SlingshotDataSet(sds_pmac_pca)
+sds_pmac_pca = slingshot(data=sce_pd_mac, reducedDim(sce_pd_mac, "PCA"), clusterLabels = sce_pd_mac$cell_types2)
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sds_pmac_pca$slingPseudotime_1, breaks=100)]
+plot(reducedDims(sds_pmac_pca)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sds_pmac_pca), lwd=2, col='black')
+sds_pmac_pca = slingshot(data=sce_pd_mac, reducedDim(sce_pd_mac, "PCA"), clusterLabels = sce_pd_mac$cell_types2)
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sds_pmac_pca$slingPseudotime_1, breaks=100)]
+plot(reducedDims(sds_pmac_pca)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sds_pmac_pca), lwd=2, col='black')
+SlingshotDataSet(sds_pmac_pca)
+sds_pmac_pca = slingshot(data=sce_pd_mac, reducedDim(sce_pd_mac, "PCA"), clusterLabels = sce_pd_mac$cell_types2, start.clus = "CD14plus_CD16minus_CD33mixed_monocytes")
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sds_pmac_pca$slingPseudotime_1, breaks=100)]
+plot(reducedDims(sds_pmac_pca)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sds_pmac_pca), lwd=2, col='black')
+SlingshotDataSet(sds_pmac_pca)
+sds_pmac_pca = slingshot(data=sce_pd_mac, reducedDim(sce_pd_mac, "PCA"), clusterLabels = sce_pd_mac$cell_types2, start.clus = "CD14plus_CD16minus_CD33mixed_monocytes", end.clus = c("CD14minus_CD16plus_monocytes", "ISG_macs", "TREM2plus_SPP1plus_LAM"))
+SlingshotDataSet(sds_pmac_pca)
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sds_pmac_pca$slingPseudotime_1, breaks=100)]
+plot(reducedDims(sds_pmac_pca)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sds_pmac_pca), lwd=2, col='black', lin=1)
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sds_pmac_pca$slingPseudotime_1, breaks=100)]
+plot(reducedDims(sds_pmac_pca)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sds_pmac_pca), lwd=2, col='black', lin=2)
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sds_pmac_pca$slingPseudotime_1, breaks=100)]
+plot(reducedDims(sds_pmac_pca)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sds_pmac_pca), lwd=2, col='black', lin=3)
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sds_pmac_pca$slingPseudotime_1, breaks=100)]
+plot(reducedDims(sds_pmac_pca)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sds_pmac_pca), lwd=2, col='black')
+SlingshotDataSet(sds_pmac_pca)
+qsave(sds_pmac_pca, file="sling-out-pbmc-mac-subset-on-pca-start-end-clusters.qs")
+sds_tmac_pca = slingshot(data=sce_td_mac, reducedDim(sce_td_mac, "PCA"), clusterLabels = sce_td_mac$cell_types2, start.clus = "CD14plus_CD16minus_CD33mixed_monocytes", end.clus = c("CD14minus_CD16plus_monocytes", "ISG_macs", "TREM2plus_SPP1plus_LAM"))
+SlingshotDataSet(sds_tmac_pca)
+sds_tmac_pca = slingshot(data=sce_td_mac, reducedDim(sce_td_mac, "PCA"), clusterLabels = sce_td_mac$cell_types2, start.clus = "CD14plus_CD16minus_CD33mixed_monocytes")
+SlingshotDataSet(sds_tmac_pca)
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sds_tmac_pca$slingPseudotime_1, breaks=100)]
+plot(reducedDims(sds_tmac_pca)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sds_tmac_pca), lwd=2, col='black')
+qsave(sds_tmac_pca, file="sling-out-til-mac-subset-on-pca-start-cluster-set.qs")
+sds_tcd3_pca = slingshot(data=sce_td_cd3, reducedDim(sce_td_cd3, "PCA"), clusterLabels = sce_td_cd3$cell_types2, start.clus = "Naive Memory")
+sce_td_cd3
+sds_tcd3_pca = slingshot(data=sce_td_cd3, reducedDim(sce_td_cd3, "PCA"), clusterLabels = sce_td_cd3$cell_types2)
+getLineages(sds_tmac_pca, clusterLabels, dist.fun = slingshot:::dist_diag)
+getLineages(sds_tmac_pca, sds_tmac_pca$cell_types2, dist.fun = slingshot:::dist_diag)
+lineages_tcd3_pca <- getLineages(sce_td_cd3, sce_td_cd3$cell_types2, dist.method = "scaled.diag")
+lineages_tcd3_pca
+SlingshotDataSet(lineages_tcd3_pca)
+crv_tcd3_pca <- getCurves(lineages_tcd3_pca)
+SlingshotDataSet(lineages_tcd3_pca)
+SlingshotDataSet(lineages_tcd3_pca, crv_tcd3_pca)
+SlingshotDataSet(crv_tcd3_pca)
+lineages_tcd3_pca <- getLineages(sce_td_cd3, sce_td_cd3$cell_types2, dist.method = "scaled.diag", start.clus="Naive Memory")
+crv_tcd3_pca <- getCurves(lineages_tcd3_pca)
+SlingshotDataSet(crv_tcd3_pca)
+lineages_pcd3_pca <- getLineages(sce_pd_cd3, sce_pd_cd3$cell_types2, dist.method = "scaled.diag", start.clus="Naive Memory")
+crv_pcd3_pca <- getCurves(lineages_pcd3_pca)
+SlingshotDataSet(crv_pcd3_pca)
+lineages_tcd4_pca <- getLineages(sce_td_cd4, sce_td_cd4$cell_types2, dist.method = "scaled.diag")
+crv_tcd4_pca <- getCurves(lineages_tcd4_pca)
+SlingshotDataSet(crv_tcd4_pca)
+lineages_pcd4_pca <- getLineages(sce_pd_cd4, sce_pd_cd4$cell_types2, dist.method = "scaled.diag")
+crv_pcd4_pca <- getCurves(lineages_pcd4_pca)
+SlingshotDataSet(crv_pcd4_pca)
+qsave(sds_pmac_pca, file="sling-out-pbmc-on-pca-best-lins.qs")
+qsave(sds_tmac_pca, file="sling-out-til-mac-on-pca-best-lins.qs")
+qsave(sds_pmac_pca, file="sling-out-pbmc-mac-on-pca-best-lins.qs")
+qsave(crv_pcd3_pca, file="sling-out-pbmc-cd3plus-on-pca-best-lins.qs")
+qsave(crv_tcd3_pca, file="sling-out-til-cd3plus-on-pca-best-lins.qs")
+qsave(crv_tcd4_pca, file="sling-out-til-cd4-on-pca-best-lins.qs")
+qsave(crv_pcd4_pca, file="sling-out-pbmc-cd4-on-pca-best-lins.qs")
+save.image("/ix/rbao/Projects/HCC-CBS-253-Hillman-LKarapetyan-scRNAseq-revise/results/jwork/042826-sling-redo-new-lins.RData")
+plot(reducedDims(sds_pmac_pca)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sds_tmac_pca), lwd=2, col='black', lin=1)
+lines(SlingshotDataSet(sds_tmac_pca), lwd=2, col='black', lin=2)
+lines(SlingshotDataSet(sds_tmac_pca), lwd=2, col='black', lin=3)
+lines(SlingshotDataSet(sds_tmac_pca), lwd=2, col='black', lin=4)
+lines(SlingshotDataSet(sds_pmac_pca), lwd=2, col='black', lin=1)
+plot(reducedDims(sds_pmac_pca)$PCA, col = plotcol, pch=16, asp = 1)
+plot(reducedDims(sds_tmac_pca)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sds_tmac_pca), lwd=2, col='black', lin=1)
+lines(SlingshotDataSet(sds_tmac_pca), lwd=2, col='black', lin=2)
+lines(SlingshotDataSet(sds_tmac_pca), lwd=2, col='black', lin=3)
+lines(SlingshotDataSet(sds_tmac_pca), lwd=2, col='black', lin=4)
+plot(reducedDims(sds_pmac_pca)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sds_pmac_pca), lwd=2, col='black', lin=1)
+lines(SlingshotDataSet(sds_pmac_pca), lwd=2, col='black', lin=2)
+lines(SlingshotDataSet(sds_pmac_pca), lwd=2, col='black', lin=3)
+lines(SlingshotDataSet(sds_pmac_pca), lwd=2, col='black', lin=4)
+plot(reducedDims(sds_pmac_pca)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sds_pmac_pca), lwd=2, col='blue', lin=1)
+lines(SlingshotDataSet(sds_pmac_pca), lwd=2, col='darkviolet', lin=2)
+lines(SlingshotDataSet(sds_pmac_pca), lwd=2, col='darkgreen', lin=3)
+shhh <- suppressPackageStartupMessages
+shhh(library(Matrix))
+shhh(library(DESeq2))
+shhh(library(celldex))
+shhh(library(hdf5r))
+shhh(library(dplyr))
+shhh(library(Seurat))
+shhh(library(stringr))
+shhh(library(tidyr))
+shhh(library(ggplot2))
+shhh(library(patchwork))
+shhh(library(Seurat))
+shhh(library(SingleR))
+shhh(library(ggrepel))
+shhh(library(qs))
+shhh(library(tidytext))
+shhh(library(pheatmap))
+shhh(library(ComplexHeatmap))
+shhh(library(ggpubr))
+shhh(library(rstatix))
+shhh(library(SingleR))
+shhh(library(edgeR))
+shhh(library(slingshot))
+shhh(library(RColorBrewer))
+shhh(library(tradeSeq))
+shhh(library(SingleCellExperiment))
+shhh(library(tidyverse))
+shhh(library(celda))
+dat_t = qread("dat-til-redo-scdblfinder-doublets-removed-042426-light.qs")
+dat_p = qread("dat-pbmc-redo-scdblfinder-doublets-removed-042426-light.qs")
+dat_p = qread("dat-pbmc-scdblfinder-doublets-removed-042726-light.qs")
+md_dat_t = as.data.frame(dat_t@meta.data)
+md_dat_p = as.data.frame(dat_p@meta.data)
+unique(md_dat_p$sample_type)
+unique(md_dat_t$sample_type)
+combined_dats <- merge(x = dat_t, y = dat_p, add.cell.ids = c("TIL", "PBMC"))
+unique(combined_dats$sample_type)
+head(combined_dats@meta.data)
+combined_dats2 <- merge(x = dat_t, y = dat_p)
+head(combined_dats2@meta.data)
+unique(combined_dats2$sample_type)
+cd1 = combined_dats
+cd2 = combined_dats2
+cd1 = NormalizeData(cd1)
+cd1 = JoinLayers(cd1)
+cd2 = JoinLayers(cd2)
+cd1 = NormalizeData(cd1)
+cd2 = NormalizeData(cd2)
+cd2 = FindVariableFeatures(cd2)
+cd1 = FindVariableFeatures(cd1)
+cd1 = ScaleData(cd1)
+cd2 = ScaleData(cd2)
+cd2 = RunPCA(cd2, dim=1:30)
+cd2 = RunPCA(cd2, dims=1:30)
+cd1 = RunPCA(cd1, dims=1:30)
+cd1@meta.data$seurat_clusters_mid = cd1@meta.data$seurat_clusters
+cd2@meta.data$seurat_clusters_mid = cd2@meta.data$seurat_clusters
+cd1 = FindNeighbors(cd1)
+cd1 = FindClusters(cd1, algorithm = 4, random.seed = 1, resolution = 0.25)
+cd1 = RunUMAP(cd1, dims = 1:30)
+cd2 = FindNeighbors(cd2)
+cd2 = FindClusters(cd2, algorithm = 4, random.seed = 1, resolution = 0.25)
+cd2 = RunUMAP(cd2, dims = 1:30)
+DimPlot(cd1, reduction = "umap", label=TRUE, repel=TRUE, group.by = c("seurat_clusters", "gen_cell_types2"))
+colnames(cd1@meta.data)
+DimPlot(cd1, reduction = "umap", label=TRUE, repel=TRUE, group.by = c("seurat_clusters", "scvi_cell_types_refined","gen_cell_types2"))
+DimPlot(cd1, reduction = "umap", label=TRUE, repel=TRUE, group.by = c("seurat_clusters", "scvi_cell_types_refined","gen_cell_types2"))
+DimPlot(cd1, reduction = "umap", label=TRUE, repel=TRUE, group.by = c("seurat_clusters", "scvi_cell_types_refined"))
+DimPlot(cd1, reduction = "umap", label=TRUE, repel=TRUE, group.by = c("seurat_clusters", "cell_types2"))
+DimPlot(cd1, reduction = "umap", label=TRUE, repel=TRUE, group.by = c("seurat_clusters", "scvi_cell_types_crude"))
+DimPlot(cd1, reduction = "umap", label=TRUE, repel=TRUE, group.by = c("seurat_clusters", "general_cell_type"))
+DimPlot(cd1, reduction = "umap", label=TRUE, repel=TRUE, group.by = c("seurat_clusters", "scvi_cell_types_refined","gen_cell_types2"))
+DimPlot(cd1, reduction = "umap", label=TRUE, repel=TRUE, group.by = c("seurat_clusters", "cell_types2","gen_cell_types2"))
+DimPlot(cd1, reduction = "umap", label=TRUE, repel=TRUE, group.by = c("scvi_cell_types_refined","cell_types2"))
+DimPlot(cd2, reduction = "umap", label=TRUE, repel=TRUE, group.by = c("seurat_clusters", "cell_types2","gen_cell_types2"))
+DimPlot(cd2, reduction = "umap", label=TRUE, repel=TRUE, group.by = c("scvi_cell_types_refined","cell_types2"))
+table(cd1@meta.data$scvi_cell_types_refined, cd1@meta.data$cell_types2)
+table(cd1@meta.data$scvi_cell_types_refined|cd1@meta.data$cell_types2)
+table(cd1@meta.data$scvi_cell_types_refined)
+table(cd1@meta.data$cell_types2)
+
+  [heatmap.plot] annotation_col rows: 200
+  [heatmap.plot] available.genes: 30
+  [heatmap.plot] lognorm.dat dim: 30 x 200
+  [heatmap.plot] nonzero rows: 29 / 30
+[1] "Generating alltime.combo.TIL.timepoint.Week4.vs.Baseline.CD4.DEG.p0.001.log.1.5.MAST.3.minpct.v11.csv"
+
+Done!
+Combining coefficients and standard errors
+Calculating log-fold changes
+Calculating likelihood ratio tests
+Refitting on reduced model...
+DOWN   NO   UP 
+   6 5829   90 
+[1] "Generating Week4.rela.TIL.PFS.6month.NoPrg6M.vs.Prg6M.CD3plus.DEG.p0.001.log.1.5.MAST.3.minpct.v11.csv"
+
+Done!
+DEBUG heatmap input for: alltime.combo.TIL.timepoint.Week4.vs.Baseline.CD4.DEG.p0.001.log.1.5.MAST.3.minpct.v11
+  nrow(de): 5925
+  diffexpressed table: 
+  p_val_adj range: 5.09758803159597e-215 - 1
+  avg_log2FC range: -4.34455986110789 - 4.98229116015022
+  genes passing p<0.001: 1664
+  [heatmap.plot] top=15 bottom=15 use.genes=30
+  [heatmap.plot] cells after downsample: 200
+  [heatmap.plot] use.assay: RNA
+  [heatmap.plot] genes in assay: 30
+  [heatmap.plot] annotation_col cols: PFS.6month, treatment, timepoint
+  [heatmap.plot] annotation_col rows: 200
+  [heatmap.plot] available.genes: 30
+  [heatmap.plot] lognorm.dat dim: 30 x 200
+  [heatmap.plot] nonzero rows: 29 / 30
+
+Done!
+Combining coefficients and standard errors
+Calculating log-fold changes
+Calculating likelihood ratio tests
+Refitting on reduced model...
+DOWN   NO   UP 
+  69 6400   57 
+
+Done!
+DEBUG heatmap input for: Week4.rela.TIL.PFS.6month.NoPrg6M.vs.Prg6M.CD3plus.DEG.p0.001.log.1.5.MAST.3.minpct.v11
+  nrow(de): 6526
+  diffexpressed table: 
+  p_val_adj range: 0 - 1
+  avg_log2FC range: -11.7351230323431 - 3.64873783719739
+  genes passing p<0.001: 5585
+  [heatmap.plot] top=15 bottom=15 use.genes=30
+  [heatmap.plot] cells after downsample: 200
+  [heatmap.plot] use.assay: RNA
+  [heatmap.plot] genes in assay: 30
+  [heatmap.plot] annotation_col cols: PFS.6month, treatment, timepoint
+  [heatmap.plot] annotation_col rows: 200
+  [heatmap.plot] available.genes: 30
+  [heatmap.plot] lognorm.dat dim: 30 x 200
+  [heatmap.plot] nonzero rows: 30 / 30
+[1] "Generating Week4.rela.TIL.PFS.6month.NoPrg6M.vs.Prg6M.Macrophages.DEG.p0.001.log.1.5.MAST.3.minpct.v11.csv"
+
+Done!
+Combining coefficients and standard errors
+Calculating log-fold changes
+Calculating likelihood ratio tests
+Refitting on reduced model...
+
+Done!
+DOWN   NO   UP 
+ 170 7637  218 
+DEBUG heatmap input for: Week4.rela.TIL.PFS.6month.NoPrg6M.vs.Prg6M.Macrophages.DEG.p0.001.log.1.5.MAST.3.minpct.v11
+  nrow(de): 8025
+  diffexpressed table: 
+  p_val_adj range: 2.77667127937802e-150 - 1
+  avg_log2FC range: -10.3859870965669 - 7.51767298485817
+  genes passing p<0.001: 852
+  [heatmap.plot] top=15 bottom=15 use.genes=30
+  [heatmap.plot] cells after downsample: 200
+  [heatmap.plot] use.assay: RNA
+  [heatmap.plot] genes in assay: 30
+  [heatmap.plot] annotation_col cols: PFS.6month, treatment, timepoint
+  [heatmap.plot] annotation_col rows: 200
+  [heatmap.plot] available.genes: 30
+  [heatmap.plot] lognorm.dat dim: 30 x 200
+  [heatmap.plot] nonzero rows: 30 / 30
+[1] "Generating Week4.rela.TIL.PFS.6month.NoPrg6M.vs.Prg6M.CD4.DEG.p0.001.log.1.5.MAST.3.minpct.v11.csv"
+
+Done!
+Combining coefficients and standard errors
+Calculating log-fold changes
+Calculating likelihood ratio tests
+Refitting on reduced model...
+
+Done!
+DOWN   NO   UP 
+  16 6501   30 
+DEBUG heatmap input for: Week4.rela.TIL.PFS.6month.NoPrg6M.vs.Prg6M.CD4.DEG.p0.001.log.1.5.MAST.3.minpct.v11
+  nrow(de): 6547
+  diffexpressed table: 
+  p_val_adj range: 3.22947588184861e-166 - 1
+  avg_log2FC range: -9.08255070491218 - 7.61505757191822
+  genes passing p<0.001: 2393
+  [heatmap.plot] top=15 bottom=15 use.genes=30
+  [heatmap.plot] cells after downsample: 200
+  [heatmap.plot] use.assay: RNA
+  [heatmap.plot] genes in assay: 30
+  [heatmap.plot] annotation_col cols: PFS.6month, treatment, timepoint
+  [heatmap.plot] annotation_col rows: 200
+  [heatmap.plot] available.genes: 30
+  [heatmap.plot] lognorm.dat dim: 30 x 200
+  [heatmap.plot] nonzero rows: 30 / 30
+[1] "Generating Week4.nivo.TIL.PFS.6month.NoPrg6M.vs.Prg6M.CD3plus.DEG.p0.001.log.1.5.MAST.3.minpct.v11.csv"
+
+Done!
+Combining coefficients and standard errors
+Calculating log-fold changes
+Calculating likelihood ratio tests
+Refitting on reduced model...
+
+Done!
+DOWN   NO   UP 
+ 173 6167  131 
+DEBUG heatmap input for: Week4.nivo.TIL.PFS.6month.NoPrg6M.vs.Prg6M.CD3plus.DEG.p0.001.log.1.5.MAST.3.minpct.v11
+  nrow(de): 6471
+  diffexpressed table: 
+  p_val_adj range: 0 - 1
+  avg_log2FC range: -7.37977570174279 - 15.8092529424345
+  genes passing p<0.001: 6470
+  [heatmap.plot] top=15 bottom=15 use.genes=30
+  [heatmap.plot] cells after downsample: 200
+  [heatmap.plot] use.assay: RNA
+  [heatmap.plot] genes in assay: 30
+  [heatmap.plot] annotation_col cols: PFS.6month, treatment, timepoint
+  [heatmap.plot] annotation_col rows: 200
+  [heatmap.plot] available.genes: 30
+  [heatmap.plot] lognorm.dat dim: 30 x 200
+  [heatmap.plot] nonzero rows: 29 / 30
+[1] "Generating Week4.nivo.TIL.PFS.6month.NoPrg6M.vs.Prg6M.Macrophages.DEG.p0.001.log.1.5.MAST.3.minpct.v11.csv"
+
+Done!
+Combining coefficients and standard errors
+Calculating log-fold changes
+Calculating likelihood ratio tests
+Refitting on reduced model...
+
+Done!
+DOWN   NO   UP 
+  85 6825   65 
+DEBUG heatmap input for: Week4.nivo.TIL.PFS.6month.NoPrg6M.vs.Prg6M.Macrophages.DEG.p0.001.log.1.5.MAST.3.minpct.v11
+  nrow(de): 6975
+  diffexpressed table: 
+  p_val_adj range: 6.16104120923855e-67 - 1
+  avg_log2FC range: -7.91973952909841 - 9.50075177163676
+  genes passing p<0.001: 341
+  [heatmap.plot] top=15 bottom=15 use.genes=30
+  [heatmap.plot] cells after downsample: 200
+  [heatmap.plot] use.assay: RNA
+  [heatmap.plot] genes in assay: 30
+  [heatmap.plot] annotation_col cols: PFS.6month, treatment, timepoint
+  [heatmap.plot] annotation_col rows: 200
+  [heatmap.plot] available.genes: 30
+  [heatmap.plot] lognorm.dat dim: 30 x 200
+  [heatmap.plot] nonzero rows: 30 / 30
+[1] "Generating Week4.nivo.TIL.PFS.6month.NoPrg6M.vs.Prg6M.CD4.DEG.p0.001.log.1.5.MAST.3.minpct.v11.csv"
+
+Done!
+Combining coefficients and standard errors
+Calculating log-fold changes
+Calculating likelihood ratio tests
+Refitting on reduced model...
+
+Done!
+DOWN   NO   UP 
+  33 6586   68 
+DEBUG heatmap input for: Week4.nivo.TIL.PFS.6month.NoPrg6M.vs.Prg6M.CD4.DEG.p0.001.log.1.5.MAST.3.minpct.v11
+  nrow(de): 6687
+  diffexpressed table: 
+  p_val_adj range: 0 - 1
+  avg_log2FC range: -10.339416430197 - 9.6472381268002
+  genes passing p<0.001: 2900
+  [heatmap.plot] top=15 bottom=15 use.genes=30
+  [heatmap.plot] cells after downsample: 200
+  [heatmap.plot] use.assay: RNA
+  [heatmap.plot] genes in assay: 30
+  [heatmap.plot] annotation_col cols: PFS.6month, treatment, timepoint
+  [heatmap.plot] annotation_col rows: 200
+  [heatmap.plot] available.genes: 30
+  [heatmap.plot] lognorm.dat dim: 30 x 200
+  [heatmap.plot] nonzero rows: 30 / 30
+[1] "Generating Week4.combo.TIL.PFS.6month.NoPrg6M.vs.Prg6M.CD3plus.DEG.p0.001.log.1.5.MAST.3.minpct.v11.csv"
+
+Done!
+Combining coefficients and standard errors
+Calculating log-fold changes
+Calculating likelihood ratio tests
+Refitting on reduced model...
+
+Done!
+DOWN   NO   UP 
+ 191 6692   39 
+DEBUG heatmap input for: Week4.combo.TIL.PFS.6month.NoPrg6M.vs.Prg6M.CD3plus.DEG.p0.001.log.1.5.MAST.3.minpct.v11
+  nrow(de): 6922
+  diffexpressed table: 
+  p_val_adj range: 0 - 1
+  avg_log2FC range: -12.4578224126503 - 11.8542792642436
+  genes passing p<0.001: 3125
+  [heatmap.plot] top=15 bottom=15 use.genes=30
+  [heatmap.plot] cells after downsample: 200
+  [heatmap.plot] use.assay: RNA
+  [heatmap.plot] genes in assay: 30
+  [heatmap.plot] annotation_col cols: PFS.6month, treatment, timepoint
+  [heatmap.plot] annotation_col rows: 200
+  [heatmap.plot] available.genes: 30
+  [heatmap.plot] lognorm.dat dim: 30 x 200
+  [heatmap.plot] nonzero rows: 30 / 30
+[1] "Generating Week4.combo.TIL.PFS.6month.NoPrg6M.vs.Prg6M.Macrophages.DEG.p0.001.log.1.5.MAST.3.minpct.v11.csv"
+
+Done!
+Combining coefficients and standard errors
+Calculating log-fold changes
+Calculating likelihood ratio tests
+Refitting on reduced model...
+
+Done!
+DOWN   NO   UP 
+  80 7916   58 
+DEBUG heatmap input for: Week4.combo.TIL.PFS.6month.NoPrg6M.vs.Prg6M.Macrophages.DEG.p0.001.log.1.5.MAST.3.minpct.v11
+  nrow(de): 8054
+  diffexpressed table: 
+  p_val_adj range: 8.85048041713047e-71 - 1
+  avg_log2FC range: -8.20979561277533 - 7.17946792857829
+  genes passing p<0.001: 519
+  [heatmap.plot] top=15 bottom=15 use.genes=30
+  [heatmap.plot] cells after downsample: 200
+  [heatmap.plot] use.assay: RNA
+  [heatmap.plot] genes in assay: 30
+  [heatmap.plot] annotation_col cols: PFS.6month, treatment, timepoint
+  [heatmap.plot] annotation_col rows: 200
+  [heatmap.plot] available.genes: 30
+  [heatmap.plot] lognorm.dat dim: 30 x 200
+  [heatmap.plot] nonzero rows: 30 / 30
+[1] "Generating Week4.combo.TIL.PFS.6month.NoPrg6M.vs.Prg6M.CD4.DEG.p0.001.log.1.5.MAST.3.minpct.v11.csv"
+
+Done!
+Combining coefficients and standard errors
+Calculating log-fold changes
+Calculating likelihood ratio tests
+Refitting on reduced model...
+
+Done!
+DOWN   NO   UP 
+ 136 6808   58 
+DEBUG heatmap input for: Week4.combo.TIL.PFS.6month.NoPrg6M.vs.Prg6M.CD4.DEG.p0.001.log.1.5.MAST.3.minpct.v11
+  nrow(de): 7002
+  diffexpressed table: 
+  p_val_adj range: 1.99030145869157e-316 - 1
+  avg_log2FC range: -12.1326917482111 - 10.1253801587986
+  genes passing p<0.001: 1344
+  [heatmap.plot] top=15 bottom=15 use.genes=30
+  [heatmap.plot] cells after downsample: 200
+  [heatmap.plot] use.assay: RNA
+  [heatmap.plot] genes in assay: 30
+  [heatmap.plot] annotation_col cols: PFS.6month, treatment, timepoint
+  [heatmap.plot] annotation_col rows: 200
+  [heatmap.plot] available.genes: 30
+  [heatmap.plot] lognorm.dat dim: 30 x 200
+  [heatmap.plot] nonzero rows: 30 / 30
+[1] "Generating Week4.alltrt.TIL.treatment.combo.vs.rela.CD3plus.DEG.p0.001.log.1.5.MAST.3.minpct.v11.csv"
+
+Done!
+Combining coefficients and standard errors
+Calculating log-fold changes
+Calculating likelihood ratio tests
+Refitting on reduced model...
+
+Done!
+DOWN   NO   UP 
+   4 4666   74 
+DEBUG heatmap input for: Week4.alltrt.TIL.treatment.combo.vs.rela.CD3plus.DEG.p0.001.log.1.5.MAST.3.minpct.v11
+  nrow(de): 4744
+  diffexpressed table: 
+  p_val_adj range: 1.66149756378629e-284 - 1
+  avg_log2FC range: -2.61798132682834 - 4.37243129846827
+  genes passing p<0.001: 2125
+  [heatmap.plot] top=15 bottom=15 use.genes=30
+  [heatmap.plot] cells after downsample: 200
+  [heatmap.plot] use.assay: RNA
+  [heatmap.plot] genes in assay: 30
+  [heatmap.plot] annotation_col cols: PFS.6month, treatment, timepoint
+  [heatmap.plot] annotation_col rows: 200
+  [heatmap.plot] available.genes: 30
+  [heatmap.plot] lognorm.dat dim: 30 x 200
+  [heatmap.plot] nonzero rows: 29 / 30
+[1] "Generating Week4.alltrt.TIL.treatment.combo.vs.nivo.CD3plus.DEG.p0.001.log.1.5.MAST.3.minpct.v11.csv"
+
+Done!
+Combining coefficients and standard errors
+Calculating log-fold changes
+Calculating likelihood ratio tests
+Refitting on reduced model...
+
+Done!
+DOWN   NO   UP 
+  69 6545  146 
+DEBUG heatmap input for: Week4.alltrt.TIL.treatment.combo.vs.nivo.CD3plus.DEG.p0.001.log.1.5.MAST.3.minpct.v11
+  nrow(de): 6760
+  diffexpressed table: 
+  p_val_adj range: 0 - 9.80450914705426e-14
+  avg_log2FC range: -8.44977525179772 - 4.89694122691499
+  genes passing p<0.001: 6760
+  [heatmap.plot] top=15 bottom=15 use.genes=30
+  [heatmap.plot] cells after downsample: 200
+  [heatmap.plot] use.assay: RNA
+  [heatmap.plot] genes in assay: 30
+  [heatmap.plot] annotation_col cols: PFS.6month, treatment, timepoint
+  [heatmap.plot] annotation_col rows: 200
+  [heatmap.plot] available.genes: 30
+  [heatmap.plot] lognorm.dat dim: 30 x 200
+  [heatmap.plot] nonzero rows: 27 / 30
+[1] "Generating Week4.alltrt.TIL.treatment.rela.vs.nivo.CD3plus.DEG.p0.001.log.1.5.MAST.3.minpct.v11.csv"
+
+Done!
+Combining coefficients and standard errors
+Calculating log-fold changes
+Calculating likelihood ratio tests
+Refitting on reduced model...
+
+Done!
+DOWN   NO   UP 
+  57 6238   72 
+DEBUG heatmap input for: Week4.alltrt.TIL.treatment.rela.vs.nivo.CD3plus.DEG.p0.001.log.1.5.MAST.3.minpct.v11
+  nrow(de): 6367
+  diffexpressed table: 
+  p_val_adj range: 0 - 0.176830464180175
+  avg_log2FC range: -8.06234426383777 - 4.98917829258368
+  genes passing p<0.001: 6366
+  [heatmap.plot] top=15 bottom=15 use.genes=30
+  [heatmap.plot] cells after downsample: 200
+  [heatmap.plot] use.assay: RNA
+  [heatmap.plot] genes in assay: 30
+  [heatmap.plot] annotation_col cols: PFS.6month, treatment, timepoint
+  [heatmap.plot] annotation_col rows: 200
+  [heatmap.plot] available.genes: 30
+  [heatmap.plot] lognorm.dat dim: 30 x 200
+  [heatmap.plot] nonzero rows: 30 / 30
+[1] "Generating Week4.alltrt.TIL.treatment.combo.vs.rela.Macrophages.DEG.p0.001.log.1.5.MAST.3.minpct.v11.csv"
+
+Done!
+Combining coefficients and standard errors
+Calculating log-fold changes
+Calculating likelihood ratio tests
+Refitting on reduced model...
+
+Done!
+DOWN   NO   UP 
+ 171 7472   56 
+DEBUG heatmap input for: Week4.alltrt.TIL.treatment.combo.vs.rela.Macrophages.DEG.p0.001.log.1.5.MAST.3.minpct.v11
+  nrow(de): 7699
+  diffexpressed table: 
+  p_val_adj range: 1.01341380213886e-158 - 1
+  avg_log2FC range: -7.79433774400043 - 5.5646314076477
+  genes passing p<0.001: 3718
+  [heatmap.plot] top=15 bottom=15 use.genes=30
+  [heatmap.plot] cells after downsample: 200
+  [heatmap.plot] use.assay: RNA
+  [heatmap.plot] genes in assay: 30
+  [heatmap.plot] annotation_col cols: PFS.6month, treatment, timepoint
+  [heatmap.plot] annotation_col rows: 200
+  [heatmap.plot] available.genes: 30
+  [heatmap.plot] lognorm.dat dim: 30 x 200
+  [heatmap.plot] nonzero rows: 30 / 30
+[1] "Generating Week4.alltrt.TIL.treatment.combo.vs.nivo.Macrophages.DEG.p0.001.log.1.5.MAST.3.minpct.v11.csv"
+
+Done!
+Combining coefficients and standard errors
+Calculating log-fold changes
+Calculating likelihood ratio tests
+Refitting on reduced model...
+
+Done!
+DOWN   NO   UP 
+ 111 7296   75 
+DEBUG heatmap input for: Week4.alltrt.TIL.treatment.combo.vs.nivo.Macrophages.DEG.p0.001.log.1.5.MAST.3.minpct.v11
+  nrow(de): 7482
+  diffexpressed table: 
+  p_val_adj range: 1.49949022369195e-130 - 1
+  avg_log2FC range: -5.7839780141291 - 5.31061362352541
+  genes passing p<0.001: 5894
+  [heatmap.plot] top=15 bottom=15 use.genes=30
+  [heatmap.plot] cells after downsample: 200
+  [heatmap.plot] use.assay: RNA
+  [heatmap.plot] genes in assay: 30
+  [heatmap.plot] annotation_col cols: PFS.6month, treatment, timepoint
+  [heatmap.plot] annotation_col rows: 200
+  [heatmap.plot] available.genes: 30
+  [heatmap.plot] lognorm.dat dim: 30 x 200
+  [heatmap.plot] nonzero rows: 30 / 30
+[1] "Generating Week4.alltrt.TIL.treatment.rela.vs.nivo.Macrophages.DEG.p0.001.log.1.5.MAST.3.minpct.v11.csv"
+
+Done!
+Combining coefficients and standard errors
+Calculating log-fold changes
+Calculating likelihood ratio tests
+Refitting on reduced model...
+
+Done!
+DOWN   NO   UP 
+  42 6781  162 
+DEBUG heatmap input for: Week4.alltrt.TIL.treatment.rela.vs.nivo.Macrophages.DEG.p0.001.log.1.5.MAST.3.minpct.v11
+  nrow(de): 6985
+  diffexpressed table: 
+  p_val_adj range: 6.44011074788006e-164 - 1
+  avg_log2FC range: -7.39744698831806 - 7.87562938097818
+  genes passing p<0.001: 1542
+  [heatmap.plot] top=15 bottom=15 use.genes=30
+  [heatmap.plot] cells after downsample: 200
+  [heatmap.plot] use.assay: RNA
+  [heatmap.plot] genes in assay: 30
+  [heatmap.plot] annotation_col cols: PFS.6month, treatment, timepoint
+  [heatmap.plot] annotation_col rows: 200
+  [heatmap.plot] available.genes: 30
+  [heatmap.plot] lognorm.dat dim: 30 x 200
+  [heatmap.plot] nonzero rows: 30 / 30
+[1] "Generating Week4.alltrt.TIL.treatment.combo.vs.rela.CD4.DEG.p0.001.log.1.5.MAST.3.minpct.v11.csv"
+
+Done!
+Combining coefficients and standard errors
+Calculating log-fold changes
+Calculating likelihood ratio tests
+Refitting on reduced model...
+
+Done!
+DOWN   NO   UP 
+  10 5164   56 
+DEBUG heatmap input for: Week4.alltrt.TIL.treatment.combo.vs.rela.CD4.DEG.p0.001.log.1.5.MAST.3.minpct.v11
+  nrow(de): 5230
+  diffexpressed table: 
+  p_val_adj range: 1.8807134141263e-132 - 1
+  avg_log2FC range: -3.00982147683863 - 4.88302038790038
+  genes passing p<0.001: 1073
+  [heatmap.plot] top=15 bottom=15 use.genes=30
+  [heatmap.plot] cells after downsample: 200
+  [heatmap.plot] use.assay: RNA
+  [heatmap.plot] genes in assay: 30
+  [heatmap.plot] annotation_col cols: PFS.6month, treatment, timepoint
+  [heatmap.plot] annotation_col rows: 200
+  [heatmap.plot] available.genes: 30
+  [heatmap.plot] lognorm.dat dim: 30 x 200
+  [heatmap.plot] nonzero rows: 29 / 30
+[1] "Generating Week4.alltrt.TIL.treatment.combo.vs.nivo.CD4.DEG.p0.001.log.1.5.MAST.3.minpct.v11.csv"
+
+Done!
+Combining coefficients and standard errors
+Calculating log-fold changes
+Calculating likelihood ratio tests
+Refitting on reduced model...
+
+Done!
+DOWN   NO   UP 
+   7 6962  112 
+DEBUG heatmap input for: Week4.alltrt.TIL.treatment.combo.vs.nivo.CD4.DEG.p0.001.log.1.5.MAST.3.minpct.v11
+  nrow(de): 7081
+  diffexpressed table: 
+  p_val_adj range: 0 - 1
+  avg_log2FC range: -3.45605082275264 - 8.2501626187382
+  genes passing p<0.001: 1584
+  [heatmap.plot] top=15 bottom=15 use.genes=30
+  [heatmap.plot] cells after downsample: 200
+  [heatmap.plot] use.assay: RNA
+  [heatmap.plot] genes in assay: 30
+  [heatmap.plot] annotation_col cols: PFS.6month, treatment, timepoint
+  [heatmap.plot] annotation_col rows: 200
+  [heatmap.plot] available.genes: 30
+  [heatmap.plot] lognorm.dat dim: 30 x 200
+  [heatmap.plot] nonzero rows: 30 / 30
+[1] "Generating Week4.alltrt.TIL.treatment.rela.vs.nivo.CD4.DEG.p0.001.log.1.5.MAST.3.minpct.v11.csv"
+
+Done!
+Combining coefficients and standard errors
+Calculating log-fold changes
+Calculating likelihood ratio tests
+Refitting on reduced model...
+
+Done!
+DOWN   NO   UP 
+  60 6642  127 
+DEBUG heatmap input for: Week4.alltrt.TIL.treatment.rela.vs.nivo.CD4.DEG.p0.001.log.1.5.MAST.3.minpct.v11
+  nrow(de): 6829
+  diffexpressed table: 
+  p_val_adj range: 0 - 1
+  avg_log2FC range: -4.77861303841004 - 5.98328838150121
+  genes passing p<0.001: 1593
+  [heatmap.plot] top=15 bottom=15 use.genes=30
+  [heatmap.plot] cells after downsample: 200
+  [heatmap.plot] use.assay: RNA
+  [heatmap.plot] genes in assay: 30
+  [heatmap.plot] annotation_col cols: PFS.6month, treatment, timepoint
+  [heatmap.plot] annotation_col rows: 200
+  [heatmap.plot] available.genes: 30
+  [heatmap.plot] lognorm.dat dim: 30 x 200
+  [heatmap.plot] nonzero rows: 30 / 30
+ done! hooray!
+There were 50 or more warnings (use warnings() to see the first 50)
+
