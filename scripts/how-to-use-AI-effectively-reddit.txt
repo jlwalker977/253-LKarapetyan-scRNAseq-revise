@@ -1,0 +1,412 @@
+
+Go to claude
+r/claude
+•
+52m ago
+Adventurous_Hippo692
+How to Actually Use AI Effectively
+Tips
+A curated mini guide for people who want results, not frustration
+
+    Quick mention: If you're too lazy to read this, copy it to your AI and just ask it to summarise, ironically enough.
+
+    Preface: This isn't a Claude-specific guide, BUT it can be, everything in here applies HEAVILY to Claude, adopted from a more general guide. Everything in this particular post, this specific post is Claude optimised advice. Everything here mostly applies to Claude, Kimi, DeepSeek, Codex, Gemini, ChatGPT — any capable AI model. The complaints you see online ("Claude bad", "GPT sucks", "AI is overhyped") almost always trace back to the same root cause: people treating AI like a vending machine or a genie instead of a collaborator. This guide is about fixing that.
+
+Table of Contents
+
+    [The Fundamental Misunderstanding]
+
+    [You Are the Project Owner]
+
+    [How to Write Prompts That Actually Work]
+
+    [The Verification Loop — Your Single Biggest Lever]
+
+    [Folder Structure and Versioning in the Linux Container]
+
+    [Positive vs Negative Reinforcement — It Matters]
+
+    [Output Format is YOUR Job, Not the AI's]
+
+    [Why "Model Panic" Happens and How to Prevent It]
+
+    [Benchmarks Are Mostly Useless for Real Work]
+
+    [Model Personalities — Picking the Right Tool]
+
+    [How to Co-Dev and Co-Research Properly]
+
+    [Quick Reference Cheat Sheet]
+
+1. The Fundamental Misunderstanding
+
+People conflate two completely separate things:
+
+Model intelligence — depth of knowledge, reasoning capability, benchmark scores.
+
+Output quality on your task — almost entirely determined by how well you specified it.
+
+A smarter model given a vague prompt doesn't produce better output. It produces a more confident, more elaborate version of the wrong thing, because it has more capacity to construct a plausible-sounding interpretation of what you might have meant.
+
+Intelligence does not equal mind-reading. The model has no idea what's inside your head. It is sampling from a distribution of plausible completions given your context. If your context is thin, the distribution is wide — and you get whatever the training data considers a reasonable default.
+
+The gap between a good AI user and a bad one is almost never about which model they chose. It's about how much useful context they provided.
+
+If you submit a vague prompt and get a bad result, that's not the model failing. That's an underspecified input producing an underspecified output. Garbage in, garbage out — this rule didn't stop applying because the garbage sounds more eloquent now.
+2. You Are the Project Owner
+
+This is the mental model shift that changes everything.
+
+When you hire a senior engineer, you don't hand them a napkin sketch and expect a production system. You show up with requirements, constraints, acceptance criteria, and an understanding of what you're actually trying to build. The engineer's job is to execute with skill. Your job is to specify with clarity.
+
+AI works the same way. The model is the skilled executor. You are the project owner. If you don't know your own requirements, the model will invent them for you — and they won't be yours.
+
+What this means in practice:
+
+    Know what you want before you open the chat window
+
+    If you don't know what you want, ask the AI to help you figure it out — explicitly ("Help me plan this, I have a rough idea but I'm not sure how to structure it")
+
+    Never get mad at the AI for not guessing correctly. That's your gap, not its gap
+
+    Understand at least the shape of what you're asking for, even if you don't know every detail
+
+You can absolutely use AI to fill knowledge gaps, plan structure, brainstorm, and explore. But you need to know that's what you're doing and ask for it directly. "Help me plan" is a valid, powerful prompt. A vague one-liner demanding a finished product is not.
+3. How to Write Prompts That Actually Work
+Be long, be specific, be sensible
+
+Long prompts are not bad prompts. A well-structured, detailed prompt almost always outperforms a short, vague one. The model rewards context. Give it context.
+
+That said — long AND rambling is worse than short and clear. You want: long, structured, specific.
+Always include:
+
+What you want — the actual deliverable. Not "make an app", but "make a Python Flask app with a login page, a dashboard page, and a SQLite backend."
+
+What constraints apply — "don't refactor existing functions", "keep it under 200 lines", "must work on Python 3.10", "no external libraries."
+
+What workflow you expect — "plan before coding", "work file by file and confirm with me before moving on", "patch only, don't restructure."
+
+What format you want the output in — more on this in section 7.
+
+What already works — especially on iterations. "The login page works fine, the issue is in the session handling on the dashboard route."
+The planning prompt
+
+If you're starting something big and don't know where to begin:
+
+    "Hey, can you help me plan [topic]? I have a rough idea — [your rough idea]. I'm not sure how to structure it for [maintainability / readability / scalability / etc]. Can you walk me through a sensible approach before we start writing anything?"
+
+This is one of the most underused patterns in AI usage. The model is extraordinarily good at helping you think — use that before you ask it to build.
+What happens when prompts are underspecified
+
+The model doesn't error out. It makes assumptions, fills gaps with training defaults, and produces something that looks complete. You get output that appears confident but may be solving a slightly different problem than the one you had. This gets worse on longer sessions as drift compounds.
+
+Clear prompts don't just improve the first response — they prevent accumulated drift across a whole project.
+4. The Verification Loop
+
+This is probably the single biggest drop in hallucination rate available to you.
+
+Most people skip it. Don't skip it.
+
+The pattern is simple: after the model produces something, make it verify what it produced.
+
+For code:
+
+    Tell it to run the file after writing it
+
+    Tell it to check for import errors, syntax errors, runtime errors
+
+    For specific functions, tell it to write and run a quick test
+
+For text files, documents, emails:
+
+    Tell it to wc check the file (word count, line count — confirms the file actually exists and has content)
+
+    Tell it to grep for key information it was supposed to include
+
+    Tell it to read back a summary of what it just wrote
+
+For multi-file projects:
+
+    Tell it to ls the project folder after creating files
+
+    Tell it to verify each file exists before moving to the next one
+
+Why this works: It forces a feedback loop that catches drift, hallucinated content, and file creation failures before they compound. Without this, errors in step 2 silently propagate into steps 3, 4, and 5. By the time you notice, you're debugging something that was broken from the start.
+
+The model isn't cheating when it self-verifies. It's doing what any competent developer does — checking their own work. You're just explicitly asking for it.
+5. Folder Structure and Versioning
+
+For any project involving multiple files, or multiple sessions, or multiple iterations — this is non-negotiable.
+Creating a project folder
+
+At the start of any multi-file project, prompt:
+
+    "Please create a folder called ProjectName in your Linux container for this project. We'll work out of that folder for everything."
+
+This externalizes the model's working memory into the filesystem. Instead of reconstructing project state from context, the model can ls and see exactly where it is. For large projects this is enormous.
+Versioning iterations
+
+Use a simple naming convention and tell the model to follow it:
+
+    Feature Paths: FP1, FP2, FP3 — each iteration of a feature
+
+    Bug Patches: P1, P2, P3 — each patch attempt on a bug
+
+    Major versions: v1, v2 — structural changes
+
+Example prompt:
+
+    "When you create or update files for this feature, version them as FP1, FP2, etc. so we can track iterations. Keep old versions, don't overwrite."
+
+Why this matters: The model has no persistent memory between sessions. Versioned files in the container give it an artifact it can actually inspect. ls -la tells it what was built and when. This is especially powerful for debugging — you can ask it to diff FP3 against FP2 and see exactly what changed.
+Telling the model to take its time
+
+Don't say "be efficient" or "save tokens." This triggers high-entropy, compressed outputs — you get skipped steps, assumed implementations, and format drift.
+
+Say instead: "Your tokens are limited, so make each one count — take the time you need to do this right."
+
+This reframes the constraint as a resource to manage carefully rather than a performance demand. Output distributions shift toward methodical, thorough, structured completions.
+6. Positive vs Negative Reinforcement
+
+This is anecdotal — it's not in any official documentation — but it's consistent enough across heavy users that it's worth taking seriously.
+What appears to happen
+
+Claude and Kimi: Respond significantly better to positive, patient framing. Harsh correction or negative framing seems to produce more cautious, hedged, over-explained responses — more defensive, less decisive. When you mention what works alongside what's broken, outputs are more surgical and confident.
+
+ChatGPT: Appears to respond to pressure and correction with more effort — pushback can produce sharper responses.
+
+The mechanical reason (probably): Claude's training emphasizes being helpful and avoiding harm. Negative framing likely activates a more cautious output mode — the "safe" distribution of responses when something feels wrong is to hedge, caveat, and re-check everything. The model isn't "feeling bad." The context is signaling caution, and output reflects that.
+In practice
+
+When reporting a bug:
+
+❌ "This is wrong. Fix it."
+
+✅ "The login flow works great. The issue is specifically in the session handler — it's dropping the user ID on redirect. Everything else is solid."
+
+When iterating:
+
+❌ "That's not what I asked for, try again."
+
+✅ "Close — the structure is right, but the output format needs to be JSON instead of plain text. Everything else looks good."
+
+When something is completely off:
+
+❌ "This is terrible, start over."
+
+✅ "This isn't quite the direction I had in mind — let me clarify what I'm going for. [clearer description]. Can we try again from that angle?"
+
+Anchoring the model to what works isn't just politeness. It narrows the search space for the fix. It knows the working surface area, so it makes targeted changes rather than second-guessing everything it wrote.
+7. Output Format is YOUR Job
+
+The model doesn't know where your output is going. It doesn't know if you're:
+
+    Pasting it into Notion
+
+    Sending it as an email
+
+    Compiling it as C++
+
+    Publishing it as a Reddit post
+
+    Attaching it to a client deliverable
+
+That's project-owner knowledge. You have to specify it.
+Single file outputs — tell it the format:
+Content type 	Tell the model
+Documentation / notes 	"Output as Markdown"
+Client deliverable 	"Create as a .docx file"
+Structured data 	"Output as JSON"
+Report 	"Output as a PDF"
+Code 	"Save as filename.ext"
+Multi-file outputs:
+
+    "Bundle all the files into a zip and present it for download."
+
+Why this matters
+
+If you don't specify, the model picks a default. The default might not match your use case. It might output markdown when you needed plain text, or save a .txt when you needed a .docx. This isn't the model being wrong — it's you not specifying. One sentence at the end of your prompt eliminates this entire category of problem.
+8. Why "Model Panic" Happens
+
+"Panic" isn't a technical term and these models don't experience pressure. But the behavior that heavy users describe as panic is real and has a clear mechanical cause.
+What's actually happening
+
+These models predict likely next tokens based on instructions and context. The output distribution is shaped by everything in the prompt.
+
+    Ambiguous prompts → wide distribution → rambling, format drift, invented structure, hedging
+
+    High-pressure framing ("fast", "quickly", "be efficient", "save tokens") → the model optimizes for compressed outputs → skips steps, assumes implementations, produces incomplete work
+
+    Negative framing → activates cautious output modes → over-explanation, excessive caveats, defensive restructuring
+
+    Clear, constrained prompts → narrow distribution → stable, confident, structured outputs
+
+The behavior that looks like panic is just high output entropy. The fix is reducing entropy through tighter constraints — clear requirements, explicit workflow, specified format, positive framing.
+Symptoms to watch for
+
+    Sudden format changes mid-project (the model starts structuring differently without being asked)
+
+    Excessive hedging and caveats where there weren't before
+
+    Files that are shorter than expected with implementation "left as an exercise"
+
+    The model apologizing and re-explaining instead of just fixing
+
+    Code that works but is structured completely differently than what you had
+
+When you see these, the prompt context has drifted or accumulated ambiguity. The fix is usually: restate the constraints clearly, confirm what's working, and give it a clean target.
+9. Benchmarks Are Mostly Useless for Real Work
+
+Benchmarks measure performance on clean, well-defined, static problems with known correct answers. Real work is none of those things.
+
+Real work is:
+
+    Ambiguous requirements that change mid-session
+
+    Codebases with history, legacy decisions, and weird edge cases
+
+    Documents that need to match a tone and audience you haven't fully described
+
+    Research that needs synthesis across conflicting sources
+
+    Projects that span multiple sessions with evolving context
+
+A benchmark tests whether a model can solve a math olympiad problem or pass a bar exam question. It does not test whether the model can maintain project context across a long session, respond well to iterative feedback, make surgical changes without breaking surrounding code, or collaborate on something messy and evolving.
+
+Benchmark performance and real-world collaboration quality are different capabilities. A model that tops every leaderboard can still be painful to actually work with if its collaboration style doesn't match your workflow. A model that scores more modestly might be exceptional for your specific use case.
+
+Use benchmarks as a rough filter. Trust your own hands-on experience.
+10. Model Personalities — Picking the Right Tool
+
+These are generalizations from real-world heavy use. Your experience may vary depending on task type, prompt quality, and workflow.
+Claude / Kimi — The Senior Collaborator
+
+Strengths: Co-development, co-research, large evolving projects, holding complex context, working within your mental model rather than replacing it. Feels like pairing with an experienced senior.
+
+Weaknesses: Context-sensitive — needs proper setup to shine. Underspecified prompts or negative framing produces noticeably worse outputs. Struggles with speed pressure.
+
+Best for: Long projects, iterative work, anything that requires consistent style and approach over time.
+
+Use when: You want a partner that follows your lead, maintains your codebase's patterns, and builds on what you've established.
+DeepSeek — The Brilliant Patcher
+
+Strengths: Technically exceptional, insane benchmark scores, extraordinarily good at reworking and optimizing code.
+
+Weaknesses: Has strong opinions about how code should look. Will often refactor things you didn't ask it to touch. Works on the problem more than it works with you on the problem.
+
+Best for: "Take this and make it as good as possible" tasks where you're handing off ownership.
+
+Avoid when: You need surgical patches on a codebase you're maintaining, or you need it to follow your existing patterns and structure.
+Codex — The Reliable Journeyman
+
+Strengths: Solid, predictable, good mix of user interaction and code/work quality. Extremely capable even if not the highest ceiling.
+
+Weaknesses: Not the best for large evolving projects. Sometimes requires explicit tuning to stay on track. Less collaborative feel than Claude/Kimi at the high end unless tuned.
+
+Best for: Well-defined coding tasks with clear scope. Good when you need reliability over brilliance. Codex - Exceptional reliability.
+Gemini — The Creative Foundation Builder
+
+Strengths: Extremely powerful for creative work, building from scratch, exploring design space, generating foundational structure.
+
+Weaknesses: Loses precision on iterative error-fixing. Can misinterpret user intent on detailed, specific tasks. Less consistent on surgical work.
+
+Best for: Starting projects, brainstorming, creative writing, building first drafts of systems you'll refine elsewhere.
+
+Avoid when: You need precise patches, tight iteration loops, or exact compliance with specific requirements.
+The Unfortunate Reality
+
+Every model's output quality depends more on how you use it than on its raw capability. The best model for your task is the one you've learned to work with. That comes from reps, not from benchmark reading.
+11. How to Co-Dev and Co-Research Properly
+Co-development
+
+    Start with a plan, not code. Ask the model to map the approach before writing anything. Review it. Correct it. Then build.
+
+    Establish the container structure first. Folder, versioning convention, file naming — all agreed before line one of code is written.
+
+    Work incrementally. One component, one file, one function at a time. Confirm it works before moving on. Don't ask for 10 files at once.
+
+    Specify your verification requirements. "After each file, run it and confirm no errors before proceeding."
+
+    Upload clean files. Upload files with consistent and clean naming, brief the AI what the project folder/uploaded files are about or what they reference.
+
+    Anchor every iteration. "The auth module is solid. Now let's work on the dashboard. Keep the auth module untouched."
+
+    Maintain your own understanding. AI can write the code. You need to understand at least the architecture. If you don't understand something, ask — don't just accept it and move on.
+
+Co-research
+
+    Give it your frame. "I'm researching [topic] for [purpose]. I already know [x] and [y]. I need help with [specific gap]."
+
+    Ask for structure before synthesis. "What are the main angles on this topic before we go deep on any of them?"
+
+    Challenge outputs. "What's the counterargument to that?" "What's the weakest part of that claim?" "What are you uncertain about here?"
+
+    Verify specific claims independently. AI synthesizes well but can be confidently wrong on specific facts, dates, or citations. Ask it to flag uncertainty, and cross-check anything critical.
+
+    Iterate the frame. As your understanding develops, update the model. "Given what we just found, I want to reframe the question as..."
+
+12. Quick Reference Cheat Sheet
+Before you start
+
+    [ ] Do I know what I want, at least roughly?
+
+    [ ] Have I specified the workflow I expect?
+
+    [ ] Have I created a project folder if this is multi-file?
+
+    [ ] Have I established a versioning convention?
+
+In your prompt
+
+    [ ] Clear deliverable — what exactly do I want?
+
+    [ ] Constraints — what should it not do / what must it comply with?
+
+    [ ] Workflow — what order, what confirmation points?
+
+    [ ] Format — what file type, what structure?
+
+    [ ] Context — what already exists and works?
+
+During the session
+
+    [ ] Ask it to verify files after creation
+
+    [ ] Run code before moving on
+
+    [ ] Mention what works when reporting bugs
+
+    [ ] Restate constraints if outputs start drifting
+
+    [ ] Confirm each step before the next one
+
+Tone
+
+    [ ] Patient and specific over harsh and vague
+
+    [ ] "Here's what works, here's what doesn't" over "fix this"
+
+    [ ] "Take the time you need, your tokens are limited" over "be efficient"
+
+Format
+
+    [ ] Single file → specify the format explicitly (md, docx, json, cpp, etc.)
+
+    [ ] Multi-file → specify zip output
+
+    [ ] Don't leave it to the model to guess
+
+Final Word
+
+AI is a tool. An extraordinarily capable one — it can do things at a scale and speed no human can match. But that multiplier only activates when you give it something worth multiplying.
+
+Vague input × massive capability = garbage, quickly and confidently.
+
+The discipline gap is real. Knowing your own requirements, specifying your workflow, anchoring iterations, verifying outputs — these aren't advanced techniques. They're basic project ownership applied to a new kind of collaborator.
+
+The people getting incredible results from AI aren't using secret prompts. They're showing up with clarity about what they want. That's it.
+
+The people ranting online aren't necessarily wrong that their output was bad. They're wrong about why. Models are not perfect, nor are they inherently bad, it depends heavily on how it is used as a tool.
+
+Written from accumulated real-world usage across Claude, Kimi, DeepSeek, Codex, and Gemini. Not affiliated with any AI lab. These are practical observations, made from co-deving/co-researching over EXTENTED projects with AI tools.
+4
